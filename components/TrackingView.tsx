@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-// Added Activity to the imports from lucide-react
 import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -17,20 +16,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
   const [showAddForm, setShowAddForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
+  const today = new Date().toISOString().split('T')[0];
+  
   const [newEntry, setNewEntry] = useState({
     interno: '',
-    entryDate: new Date().toISOString().split('T')[0],
+    entryDate: today,
     preliminary: '',
     firstAction: '',
     actionPerformedBy: '',
-    actionDate: new Date().toISOString().split('T')[0],
+    actionDate: today,
     comment: ''
   });
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [newActionText, setNewActionText] = useState('');
   const [newActionPerformedBy, setNewActionPerformedBy] = useState('');
-  const [newActionDate, setNewActionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newActionDate, setNewActionDate] = useState(today);
 
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [editActionData, setEditActionData] = useState<{
@@ -44,18 +45,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
 
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
 
+  // Función para formatear fecha evitando el error de zona horaria (UTC vs Local)
+  const formatDateDisplay = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
   const getDiffDays = (d1: string, d2: string) => {
-    const start = new Date(d1);
-    const end = new Date(d2);
-    start.setHours(0,0,0,0);
-    end.setHours(0,0,0,0);
+    const start = new Date(d1 + 'T00:00:00');
+    const end = new Date(d2 + 'T00:00:00');
     const diffTime = end.getTime() - start.getTime();
     return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
   };
 
   const calculateLoss = (days: number, eq?: Equipment) => {
     if (!eq) return 0;
-    // Formula: (dias acumulados/30)*0.0325*Demerito*0.5*Valor Nuevo
     return (days / 30) * 0.0325 * (eq.demerito || 0.8) * 0.5 * (eq.valorNuevo || 0);
   };
 
@@ -76,7 +81,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     const isWaitingParts = !isOperative && repuestoKeywords.some(kw => desc.includes(kw));
     const isInRepair = !isOperative && !isWaitingParts;
 
-    const endDateStr = isOperative ? lastAction.date : new Date().toISOString().split('T')[0];
+    const endDateStr = isOperative ? lastAction.date : today;
     const totalDays = getDiffDays(entry.entryDate, endDateStr);
 
     return { isOperative, isWaitingParts, isInRepair, endDate: endDateStr, totalDays };
@@ -140,11 +145,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       
       const statusLabel = isOperative ? 'OPERATIVO' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN');
       
-      doc.text(`INTERNO: ${entry.equipmentId} | ${eq?.type || 'N/A'} | ${eq?.brand || ''} ${eq?.model || ''}`, 18, startY + 7);
+      // Se agrega Hs de Arrastre al encabezado del PDF
+      doc.text(`INTERNO: ${entry.equipmentId} | ${eq?.type || 'N/A'} | ${eq?.brand || ''} ${eq?.model || ''} | Hs Arrastre: ${eq?.hours.toLocaleString() || '0'}`, 18, startY + 7);
       
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`INGRESO: ${new Date(entry.entryDate).toLocaleDateString()} | ESTADO: ${statusLabel} | ESTADÍA: ${totalDays} días`, 18, startY + 13);
+      doc.text(`INGRESO: ${formatDateDisplay(entry.entryDate)} | ESTADO: ${statusLabel} | ESTADÍA: ${totalDays} días`, 18, startY + 13);
       
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(153, 27, 27); 
@@ -166,7 +172,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       const tableData = entry.actions.map((action, idx) => {
         const prevDate = idx === 0 ? entry.entryDate : entry.actions[idx - 1].date;
         return [
-          new Date(action.date).toLocaleDateString(),
+          formatDateDisplay(action.date),
           action.description,
           action.performedBy || '-',
           `${getDiffDays(prevDate, action.date)} d.`,
@@ -273,8 +279,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     };
     setEntries(prev => [entry, ...prev]);
     setNewEntry({
-      interno: '', entryDate: new Date().toISOString().split('T')[0], preliminary: '',
-      firstAction: '', actionPerformedBy: '', actionDate: new Date().toISOString().split('T')[0],
+      interno: '', entryDate: today, preliminary: '',
+      firstAction: '', actionPerformedBy: '', actionDate: today,
       comment: ''
     });
     setShowAddForm(false);
@@ -365,7 +371,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
             </div>
             <div className="md:col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha Ingreso</label>
-              <input type="date" value={newEntry.entryDate} onChange={e => setNewEntry({...newEntry, entryDate: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:bg-white outline-none" />
+              <input type="date" value={newEntry.entryDate} onChange={e => setNewEntry({...newEntry, entryDate: e.target.value, actionDate: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:bg-white outline-none" />
             </div>
             
             <div className="md:col-span-2">
@@ -435,9 +441,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                     <td className="px-4 py-4 border-r border-slate-200">
                       <div className="font-bold text-slate-800 leading-tight">{eq?.brand} {eq?.model}</div>
                       <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.type}</div>
+                      <div className="flex items-center gap-1 mt-1 text-[10px] font-bold text-slate-600">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        <span>Hs Arrastre: {eq?.hours.toLocaleString() || '0'}</span>
+                      </div>
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-500 font-mono">
-                      {new Date(entry.entryDate).toLocaleDateString()}
+                      {formatDateDisplay(entry.entryDate)}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-slate-600 italic">
                       {entry.preliminaryInfo}
@@ -464,7 +474,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                     <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-500 font-mono">
                       {isEditingFirst ? (
                         <input type="date" value={editActionData.date} onChange={e => setEditActionData({...editActionData, date: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border-2 border-green-400 rounded outline-none" />
-                      ) : new Date(firstAction.date).toLocaleDateString()}
+                      ) : formatDateDisplay(firstAction.date)}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700">
                       {totalDays}d
@@ -503,7 +513,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                         <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
                           {isEditing ? (
                             <input type="date" value={editActionData.date} onChange={e => setEditActionData({...editActionData, date: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border border-green-400 rounded outline-none" />
-                          ) : new Date(action.date).toLocaleDateString()}
+                          ) : formatDateDisplay(action.date)}
                         </td>
                         <td className="px-4 py-2 border-r border-slate-200 text-center font-black text-slate-700">
                           {getDiffDays(entry.entryDate, action.date)}d
