@@ -5,6 +5,9 @@ export interface Equipment {
   brand: string; // Marca
   model: string; // Modelo
   hours: number; // Hs
+  valorNuevo: number; // Valor de reposición (USD)
+  demerito: number; // Factor de mérito (0 a 1)
+  generalComment?: string; // Comentario permanente del equipo
 }
 
 export interface MaintenanceAction {

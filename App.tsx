@@ -133,7 +133,7 @@ const App: React.FC = () => {
 
       {/* Footer */}
       <footer className="bg-white border-t py-4 text-center text-slate-400 text-[10px] uppercase font-black tracking-[0.3em]">
-        GEyT - Sistema de Seguimiento de Taller &copy; {new Date().getFullYear()}
+        GEyT - MARTIN ADROVER &copy; {new Date().getFullYear()}
       </footer>
     </div>
   );
