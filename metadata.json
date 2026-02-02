@@ -1,0 +1,5 @@
+{
+  "name": "Gestor de Taller de Maquinaria",
+  "description": "Una aplicación web estilo Excel para el seguimiento del historial de mantenimiento de equipos pesados, con autocompletado de base de datos y dashboard de estados.",
+  "requestFramePermissions": []
+}
