@@ -21,6 +21,7 @@ export interface MaintenanceEntry {
   id: string;
   equipmentId: string;
   entryDate: string;
+  assignedWork?: string; // Obra Asignada
   preliminaryInfo: string;
   actions: MaintenanceAction[];
   comment?: string; // Observaciones generales del ingreso

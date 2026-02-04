@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -16,11 +16,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
   const [showAddForm, setShowAddForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
-  const today = new Date().toISOString().split('T')[0];
+  // Fecha actual en formato YYYY-MM-DD local
+  const today = new Date().toLocaleDateString('en-CA'); 
   
   const [newEntry, setNewEntry] = useState({
     interno: '',
     entryDate: today,
+    assignedWork: '',
     preliminary: '',
     firstAction: '',
     actionPerformedBy: '',
@@ -34,18 +36,23 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
   const [newActionDate, setNewActionDate] = useState(today);
 
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editActionData, setEditActionData] = useState<{
     description: string;
     performedBy: string;
     date: string;
   }>({ description: '', performedBy: '', date: '' });
 
+  const [editEntryData, setEditEntryData] = useState<{
+    assignedWork: string;
+    preliminaryInfo: string;
+  }>({ assignedWork: '', preliminaryInfo: '' });
+
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [tempComment, setTempComment] = useState('');
 
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
 
-  // Función para formatear fecha evitando el error de zona horaria (UTC vs Local)
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
     const [year, month, day] = dateStr.split('-');
@@ -64,10 +71,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     return (days / 30) * 0.0325 * (eq.demerito || 0.8) * 0.5 * (eq.valorNuevo || 0);
   };
 
+  // Formato USD solicitado: USD 13.700
   const formatCurrencyAbbr = (value: number) => {
-    if (value >= 1000000) return `$ ${(value / 1000000).toFixed(1)} Mill.`;
-    if (value >= 1000) return `$ ${(value / 1000).toFixed(1)} Mil`;
-    return `$ ${value.toFixed(0)}`;
+    return `USD ${Math.round(value).toLocaleString('de-DE')}`;
   };
 
   const getWorkshopStatus = (entry: MaintenanceEntry) => {
@@ -77,8 +83,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     const lastAction = actions[actions.length - 1];
     const desc = lastAction.description.toLowerCase();
     
-    const isOperative = desc.includes('operativo');
-    const isWaitingParts = !isOperative && repuestoKeywords.some(kw => desc.includes(kw));
+    // Si contiene "entrega", vuelve a "En Reparación" automáticamente (isOperative = false)
+    const isForcedRepair = desc.includes('entrega');
+    const isOperative = !isForcedRepair && desc.includes('operativo');
+    const isWaitingParts = !isOperative && !isForcedRepair && repuestoKeywords.some(kw => desc.includes(kw));
     const isInRepair = !isOperative && !isWaitingParts;
 
     const endDateStr = isOperative ? lastAction.date : today;
@@ -104,6 +112,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       return (
         entry.equipmentId.toLowerCase().includes(term) ||
         entry.preliminaryInfo.toLowerCase().includes(term) ||
+        (entry.assignedWork || '').toLowerCase().includes(term) ||
         eq?.type.toLowerCase().includes(term) ||
         eq?.brand.toLowerCase().includes(term)
       );
@@ -112,7 +121,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = new Date().toLocaleDateString('en-CA');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(18);
@@ -122,6 +131,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     let startY = 35;
     let totalLossAll = 0;
     let totalStayDaysAll = 0;
+    let currentlyInWorkshopCount = 0;
+    let operativeCount = 0;
 
     filteredEntries.forEach((entry, index) => {
       const eq = equipment.find(e => e.id === entry.equipmentId);
@@ -129,6 +140,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       const loss = calculateLoss(totalDays, eq);
       totalLossAll += loss;
       totalStayDaysAll += totalDays;
+      if (isOperative) operativeCount++; else currentlyInWorkshopCount++;
 
       let headerBg = [219, 234, 254]; 
       if (isOperative) headerBg = [220, 252, 231]; 
@@ -139,18 +151,19 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       doc.setDrawColor(200, 200, 200);
       doc.rect(14, startY, 269, 22, 'S');
       
-      doc.setFontSize(9);
+      // Fuente mejorada para que entre en el recuadro
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(30, 41, 59);
       
       const statusLabel = isOperative ? 'OPERATIVO' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN');
       
-      // Se agrega Hs de Arrastre al encabezado del PDF
-      doc.text(`INTERNO: ${entry.equipmentId} | ${eq?.type || 'N/A'} | ${eq?.brand || ''} ${eq?.model || ''} | Hs Arrastre: ${eq?.hours.toLocaleString() || '0'}`, 18, startY + 7);
+      const headerText = `INTERNO: ${entry.equipmentId} | ${eq?.type || 'N/A'} | ${eq?.brand || ''} ${eq?.model || ''} | OBRA: ${entry.assignedWork || 'N/A'} | HS ARRASTRE: ${eq?.hours.toLocaleString('de-DE') || '0'}`;
+      doc.text(headerText, 18, startY + 7);
       
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`INGRESO: ${formatDateDisplay(entry.entryDate)} | ESTADO: ${statusLabel} | ESTADÍA: ${totalDays} días`, 18, startY + 13);
+      doc.text(`INGRESO: ${formatDateDisplay(entry.entryDate)} | ESTADO: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días`, 18, startY + 13);
       
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(153, 27, 27); 
@@ -158,6 +171,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       
       startY += 28;
 
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(30, 41, 59);
       doc.text('INFORME PRELIMINAR / SÍNTOMAS:', 14, startY);
@@ -171,18 +185,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
 
       const tableData = entry.actions.map((action, idx) => {
         const prevDate = idx === 0 ? entry.entryDate : entry.actions[idx - 1].date;
+        const isLast = idx === entry.actions.length - 1;
+        const endDateForAction = (isLast && !isOperative) ? todayStr : action.date;
+        const actionDuration = getDiffDays(prevDate, endDateForAction);
+
         return [
           formatDateDisplay(action.date),
           action.description,
           action.performedBy || '-',
-          `${getDiffDays(prevDate, action.date)} d.`,
-          `${getDiffDays(entry.entryDate, action.date)} d.`
+          `${actionDuration} d.`,
+          `${getDiffDays(entry.entryDate, endDateForAction)} d.`
         ];
       });
 
       autoTable(doc, {
         startY: startY,
-        head: [['Fecha', 'Acción Realizada', 'Responsable', 'Parcial', 'Acumulado']],
+        head: [['Fecha', 'Acción Realizada', 'Responsable', 'Parcial (Días)', 'Acumulado']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: [51, 65, 85], fontSize: 8 },
@@ -191,66 +209,33 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
 
       startY = (doc as any).lastAutoTable.finalY + 8;
 
-      if (entry.comment) {
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 41, 59);
-        doc.text('OBSERVACIONES DE ESTE INGRESO:', 14, startY);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(51, 65, 85);
-        const commentText = entry.comment;
-        const splitComment = doc.splitTextToSize(commentText, 260);
-        doc.text(splitComment, 14, startY + 5);
-        startY += (splitComment.length * 5) + 8;
-      }
-
-      if (eq?.generalComment) {
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(0, 128, 0); 
-        doc.text(`OBSERVACIONES GENERALES DEL EQUIPO ${entry.equipmentId}:`, 14, startY);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(51, 65, 85);
-        const genCommentText = eq.generalComment;
-        const splitGenComment = doc.splitTextToSize(genCommentText, 260);
-        doc.text(splitGenComment, 14, startY + 5);
-        startY += (splitGenComment.length * 5) + 12;
-      } else {
-        startY += 8;
-      }
-
       if (startY > 160 && index < filteredEntries.length - 1) {
         doc.addPage();
         startY = 20;
       }
     });
 
+    // Agregar KPI de Dashboard al final
     doc.addPage();
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text('RESUMEN ESTADÍSTICO DE GESTIÓN', 14, 20);
+    doc.text('RESUMEN DE GESTIÓN Y MÉTRICAS DE FLOTA', 14, 20);
     
-    let currentlyInWorkshopCount = 0;
-    let operativeCount = 0;
-
-    entries.forEach(entry => {
-      const { isOperative } = getWorkshopStatus(entry);
-      if (isOperative) operativeCount++; else currentlyInWorkshopCount++;
-    });
-
-    const avgStay = filteredEntries.length > 0 ? (totalStayDaysAll / filteredEntries.length).toFixed(2) : "0.00";
+    const avgStay = entries.length > 0 ? (totalStayDaysAll / entries.length).toFixed(2) : "0.00";
 
     autoTable(doc, {
       startY: 35,
       head: [['Indicador Clave de Desempeño (KPI)', 'Valor']],
       body: [
         ['Equipos actualmente en Taller', currentlyInWorkshopCount],
-        ['Total Equipos Operativos (Histórico)', operativeCount],
-        ['Estadía Promedio (Días)', `${avgStay} d.`],
-        ['Pérdida de facturación total (Dólares)', formatCurrencyAbbr(totalLossAll)],
+        ['Total Equipos Operativos (Cierre de Historial)', operativeCount],
+        ['Estadía Promedio por Ingreso (Días)', `${avgStay} d.`],
+        ['Pérdida de facturación total estimada', formatCurrencyAbbr(totalLossAll)],
       ],
       theme: 'striped',
-      headStyles: { fillColor: [21, 128, 61] },
-      styles: { fontSize: 10, cellPadding: 5 }
+      headStyles: { fillColor: [21, 128, 61], fontSize: 10 },
+      bodyStyles: { fontSize: 10, cellPadding: 5 }
     });
 
     doc.save(`Historial_Taller_GEyT_${todayStr}.pdf`);
@@ -268,6 +253,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
       id: `ENT-${Date.now()}`,
       equipmentId: matchedEquipment.id,
       entryDate: newEntry.entryDate,
+      assignedWork: newEntry.assignedWork.trim(),
       preliminaryInfo: newEntry.preliminary.trim(),
       comment: newEntry.comment.trim(),
       actions: [{
@@ -279,7 +265,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     };
     setEntries(prev => [entry, ...prev]);
     setNewEntry({
-      interno: '', entryDate: today, preliminary: '',
+      interno: '', entryDate: today, assignedWork: '', preliminary: '',
       firstAction: '', actionPerformedBy: '', actionDate: today,
       comment: ''
     });
@@ -305,14 +291,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
     setNewActionText(''); setNewActionPerformedBy(''); setSelectedEntryId(null);
   };
 
-  const handleStartEditComment = (entry: MaintenanceEntry) => {
-    setEditingCommentId(entry.id);
-    setTempComment(entry.comment || '');
-  };
-
-  const handleSaveComment = (entryId: string) => {
-    setEntries(prev => prev.map(entry => entry.id === entryId ? { ...entry, comment: tempComment } : entry));
-    setEditingCommentId(null);
+  const handleSaveEditEntry = (entryId: string) => {
+    setEntries(prev => prev.map(e => e.id === entryId ? { ...e, ...editEntryData } : e));
+    setEditingEntryId(null);
   };
 
   const handleSaveEditAction = (entryId: string) => {
@@ -341,7 +322,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input 
               type="text" 
-              placeholder="Buscar..."
+              placeholder="Buscar por interno, equipo u obra..."
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -363,15 +344,24 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Interno</label>
               <input type="text" value={newEntry.interno} onChange={e => setNewEntry({...newEntry, interno: e.target.value.toUpperCase()})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:bg-white outline-none" placeholder="E-000" />
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Equipo</label>
               <div className="bg-slate-50 border border-slate-100 rounded p-2 text-sm h-[38px] flex items-center text-slate-700 italic">
                 {matchedEquipment ? `${matchedEquipment.type} | ${matchedEquipment.brand}` : 'Ingrese Interno para validar...'}
               </div>
             </div>
+            <div className="md:col-span-1">
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Obra Asignada</label>
+              <input type="text" value={newEntry.assignedWork} onChange={e => setNewEntry({...newEntry, assignedWork: e.target.value})} className="w-full bg-white border border-slate-200 rounded p-2 text-sm outline-none focus:ring-2 focus:ring-green-500" placeholder="Nombre Obra" />
+            </div>
             <div className="md:col-span-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fecha Ingreso</label>
-              <input type="date" value={newEntry.entryDate} onChange={e => setNewEntry({...newEntry, entryDate: e.target.value, actionDate: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:bg-white outline-none" />
+              <input 
+                type="date" 
+                value={newEntry.entryDate} 
+                onChange={e => setNewEntry({...newEntry, entryDate: e.target.value, actionDate: e.target.value})} 
+                className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm focus:bg-white outline-none" 
+              />
             </div>
             
             <div className="md:col-span-2">
@@ -401,12 +391,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
             <tr>
               <th className="px-4 py-3 border-r border-slate-200 w-24">Interno</th>
               <th className="px-4 py-3 border-r border-slate-200">Equipo</th>
+              <th className="px-4 py-3 border-r border-slate-200">Obra Asignada</th>
               <th className="px-4 py-3 border-r border-slate-200 w-24 text-center">Ingreso</th>
               <th className="px-4 py-3 border-r border-slate-200">Informe Preliminar</th>
               <th className="px-4 py-3 border-r border-slate-200">Acción Registrada</th>
               <th className="px-4 py-3 border-r border-slate-200 w-32 text-center">Responsable</th>
               <th className="px-4 py-3 border-r border-slate-200 w-28 text-center">Fecha</th>
-              <th className="px-4 py-3 border-r border-slate-200 w-16 text-center">D. Total</th>
+              <th className="px-4 py-3 border-r border-slate-200 w-20 text-center">D. Avance</th>
               <th className="px-4 py-3 w-12 text-center"></th>
             </tr>
           </thead>
@@ -417,6 +408,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
               const loss = calculateLoss(totalDays, eq);
               const firstAction = entry.actions[0];
               const isEditingFirst = editingActionId === firstAction.id;
+              const isEditingEntry = editingEntryId === entry.id;
+
+              const isFirstActionLast = entry.actions.length === 1;
+              const endDateFirst = (isFirstActionLast && !isOperative) ? today : firstAction.date;
+              const firstActionDuration = getDiffDays(entry.entryDate, endDateFirst);
 
               return (
                 <React.Fragment key={entry.id}>
@@ -425,15 +421,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                       <div className="font-bold text-slate-900 leading-none">{entry.equipmentId}</div>
                       <div className="mt-2 flex flex-col gap-1">
                         <div 
-                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm cursor-help ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}
-                          title="Estadía acumulada: Días transcurridos desde el ingreso a taller."
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}
                         >
-                          {totalDays} d.
+                          {totalDays} d. Total
                         </div>
-                        <div 
-                          className="inline-flex items-center text-[9px] font-black text-red-600 uppercase tracking-tighter whitespace-nowrap cursor-help"
-                          title="Pérdida de facturación: Estimación económica por inactividad del equipo."
-                        >
+                        <div className="inline-flex items-center text-[9px] font-black text-red-600 uppercase tracking-tighter whitespace-nowrap">
                           {formatCurrencyAbbr(loss)}
                         </div>
                       </div>
@@ -443,14 +435,26 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                       <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.type}</div>
                       <div className="flex items-center gap-1 mt-1 text-[10px] font-bold text-slate-600">
                         <Clock className="w-3 h-3 text-slate-400" />
-                        <span>Hs Arrastre: {eq?.hours.toLocaleString() || '0'}</span>
+                        <span>Hs Arrastre: {eq?.hours.toLocaleString('de-DE') || '0'}</span>
                       </div>
+                    </td>
+                    <td className="px-4 py-4 border-r border-slate-200">
+                      {isEditingEntry ? (
+                        <input type="text" value={editEntryData.assignedWork} onChange={e => setEditEntryData({...editEntryData, assignedWork: e.target.value})} className="w-full text-xs p-1.5 bg-white border-2 border-green-400 rounded outline-none" />
+                      ) : (
+                        <div className="flex items-center gap-1 text-slate-600 font-medium">
+                          <MapPin className="w-3 h-3 text-slate-300" />
+                          {entry.assignedWork || 'N/A'}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-500 font-mono">
                       {formatDateDisplay(entry.entryDate)}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-slate-600 italic">
-                      {entry.preliminaryInfo}
+                      {isEditingEntry ? (
+                        <input type="text" value={editEntryData.preliminaryInfo} onChange={e => setEditEntryData({...editEntryData, preliminaryInfo: e.target.value})} className="w-full text-xs p-1.5 bg-white border-2 border-green-400 rounded outline-none" />
+                      ) : entry.preliminaryInfo}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200">
                       {isEditingFirst ? (
@@ -468,7 +472,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-600">
                       {isEditingFirst ? (
-                        <input type="text" value={editActionData.performedBy} onChange={e => setEditActionData({...editActionData, performedBy: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border-2 border-green-400 rounded outline-none" />
+                        <input type="text" value={editActionData.performedBy} onChange={e => setEditActionData({...editActionData, actionPerformedBy: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border-2 border-green-400 rounded outline-none" />
                       ) : firstAction.performedBy}
                     </td>
                     <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-500 font-mono">
@@ -476,16 +480,18 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                         <input type="date" value={editActionData.date} onChange={e => setEditActionData({...editActionData, date: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border-2 border-green-400 rounded outline-none" />
                       ) : formatDateDisplay(firstAction.date)}
                     </td>
-                    <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700">
-                      {totalDays}d
+                    <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-50/50">
+                      <div className={`px-2 py-1 rounded text-xs ${isFirstActionLast && !isOperative ? 'text-blue-600 animate-pulse font-black' : 'text-slate-600 font-bold'}`}>
+                        {firstActionDuration}d
+                      </div>
                     </td>
                     <td className="px-4 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {isEditingFirst ? (
-                          <button onClick={() => handleSaveEditAction(entry.id)} className="text-green-600 hover:bg-green-50 p-1 rounded"><Check className="w-4 h-4" /></button>
+                        {isEditingFirst || isEditingEntry ? (
+                          <button onClick={() => { if(isEditingFirst) handleSaveEditAction(entry.id); if(isEditingEntry) handleSaveEditEntry(entry.id); }} className="text-green-600 hover:bg-green-50 p-1 rounded"><Check className="w-4 h-4" /></button>
                         ) : (
                           <>
-                            <button onClick={() => { setEditingActionId(firstAction.id); setEditActionData({ description: firstAction.description, performedBy: firstAction.performedBy, date: firstAction.date }); }} className="text-slate-300 hover:text-green-700 opacity-0 group-hover:opacity-100"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => { setEditingEntryId(entry.id); setEditingActionId(firstAction.id); setEditEntryData({ assignedWork: entry.assignedWork || '', preliminaryInfo: entry.preliminaryInfo }); setEditActionData({ description: firstAction.description, performedBy: firstAction.performedBy, date: firstAction.date }); }} className="text-slate-300 hover:text-green-700 opacity-0 group-hover:opacity-100"><Edit2 className="w-3.5 h-3.5" /></button>
                             <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                           </>
                         )}
@@ -495,9 +501,15 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
 
                   {entry.actions.slice(1).map((action, idx) => {
                     const isEditing = editingActionId === action.id;
+                    const isLastAction = idx === entry.actions.slice(1).length - 1;
+                    const prevActionDate = entry.actions[idx].date; 
+                    
+                    const endDate = (isLastAction && !isOperative) ? today : action.date;
+                    const duration = getDiffDays(prevActionDate, endDate);
+
                     return (
                       <tr key={action.id} className="bg-white border-b border-slate-50 hover:bg-slate-50 group/row">
-                        <td colSpan={4} className="border-r border-slate-100"></td>
+                        <td colSpan={5} className="border-r border-slate-100"></td>
                         <td className="px-4 py-2 border-r border-slate-200">
                           {isEditing ? (
                             <input type="text" value={editActionData.description} onChange={e => setEditActionData({...editActionData, description: e.target.value})} className="w-full text-xs p-1 bg-white text-slate-900 border border-green-400 rounded outline-none" />
@@ -507,7 +519,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                         </td>
                         <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-500">
                           {isEditing ? (
-                            <input type="text" value={editActionData.performedBy} onChange={e => setEditActionData({...editActionData, performedBy: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border border-green-400 rounded outline-none" />
+                            <input type="text" value={editActionData.performedBy} onChange={e => setEditActionData({...editActionData, actionPerformedBy: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border border-green-400 rounded outline-none" />
                           ) : action.performedBy}
                         </td>
                         <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px]">
@@ -515,8 +527,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                             <input type="date" value={editActionData.date} onChange={e => setEditActionData({...editActionData, date: e.target.value})} className="w-full text-[10px] p-1 bg-white text-slate-900 border border-green-400 rounded outline-none" />
                           ) : formatDateDisplay(action.date)}
                         </td>
-                        <td className="px-4 py-2 border-r border-slate-200 text-center font-black text-slate-700">
-                          {getDiffDays(entry.entryDate, action.date)}d
+                        <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-700 bg-slate-50/30">
+                          <div className={`text-xs ${isLastAction && !isOperative ? 'text-blue-600 animate-pulse font-black' : 'text-slate-500 font-bold'}`}>
+                            {duration}d
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-center">
                           {isEditing ? (
@@ -530,15 +544,15 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                   })}
 
                   <tr className="bg-white">
-                    <td colSpan={4} className="border-r border-slate-100"></td>
+                    <td colSpan={5} className="border-r border-slate-100"></td>
                     <td colSpan={5} className="px-4 py-3 border-b border-slate-200">
                       <div className="flex flex-col gap-3">
                         <div className="flex items-start gap-2 group/comment">
                           <MessageSquare className="w-4 h-4 text-slate-300 mt-1" />
                           {editingCommentId === entry.id ? (
                             <div className="flex-1 flex gap-2">
-                              <textarea autoFocus value={tempComment} onChange={e => setTempComment(e.target.value)} className="flex-1 text-xs border border-green-400 rounded p-2 outline-none focus:ring-1 focus:ring-green-500 italic bg-white" rows={2} placeholder="Escriba un comentario para este ingreso..." />
-                              <button onClick={() => handleSaveComment(entry.id)} className="bg-green-600 text-white p-2 rounded self-start"><Check className="w-4 h-4" /></button>
+                              <textarea autoFocus value={tempComment} onChange={e => setTempComment(e.target.value)} className="flex-1 text-xs border border-green-400 rounded p-2 outline-none focus:ring-1 focus:ring-green-500 italic bg-white" rows={2} placeholder="Escriba un comentario..." />
+                              <button onClick={() => { setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, comment: tempComment } : e)); setEditingCommentId(null); }} className="bg-green-600 text-white p-2 rounded self-start"><Check className="w-4 h-4" /></button>
                             </div>
                           ) : (
                             <div className="flex-1 flex justify-between items-start">
@@ -546,20 +560,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, setEntries, equipm
                                 <span className="font-bold text-[10px] uppercase not-italic mr-2">Obs. Ingreso:</span>
                                 {entry.comment || 'Sin comentarios adicionales.'}
                               </p>
-                              <button onClick={() => handleStartEditComment(entry)} className="text-slate-300 hover:text-green-600 opacity-0 group-hover/comment:opacity-100"><Edit2 className="w-3 h-3" /></button>
+                              <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.comment || ''); }} className="text-slate-300 hover:text-green-600 opacity-0 group-hover/comment:opacity-100"><Edit2 className="w-3 h-3" /></button>
                             </div>
                           )}
                         </div>
-
-                        {eq?.generalComment && (
-                          <div className="flex items-start gap-2 pl-6">
-                            <Activity className="w-3.5 h-3.5 text-green-400 mt-0.5" />
-                            <p className="text-[10px] text-green-700 italic">
-                              <span className="font-bold uppercase not-italic mr-2">Obs. Equipo ({eq.id}):</span>
-                              {eq.generalComment}
-                            </p>
-                          </div>
-                        )}
 
                         {selectedEntryId === entry.id ? (
                           <div className="flex gap-2 items-center bg-green-50 p-2 rounded-lg border border-green-100 animate-in zoom-in-95 mt-1">

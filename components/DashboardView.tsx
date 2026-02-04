@@ -33,10 +33,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
       if (actions.length === 0) return;
 
       const lastAction = actions[actions.length - 1];
-      const isCurrentlyOperative = lastAction.description.toLowerCase().includes('operativo');
+      const isCurrentlyOperative = lastAction.description.toLowerCase().includes('operativo') && !lastAction.description.toLowerCase().includes('entrega');
       
-      const dateLimit = isCurrentlyOperative ? new Date(lastAction.date) : today;
-      const stayDays = Math.max(0, Math.floor((dateLimit.getTime() - new Date(entry.entryDate).getTime()) / (1000 * 60 * 60 * 24)));
+      const dateLimit = isCurrentlyOperative ? new Date(lastAction.date + 'T00:00:00') : today;
+      const stayDays = Math.max(0, Math.floor((dateLimit.getTime() - new Date(entry.entryDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)));
       totalStayDaysAcrossAll += stayDays;
 
       // Calcular pérdida para este equipo
@@ -56,21 +56,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
           inRepairCount++;
         }
       }
-
-      // Tiempo de repuestos
-      for (let i = 0; i < actions.length; i++) {
-        if (repuestoKeywords.some(kw => actions[i].description.toLowerCase().includes(kw)) && i < actions.length - 1) {
-          const diff = Math.max(0, Math.floor((new Date(actions[i + 1].date).getTime() - new Date(actions[i].date).getTime()) / (1000 * 60 * 60 * 24)));
-          totalPartsDays += diff;
-          partsSegmentsCount++;
-        }
-      }
     });
 
-    const formatCurrencyAbbr = (value: number) => {
-      if (value >= 1000000) return `$ ${(value / 1000000).toFixed(1)} Mill.`;
-      if (value >= 1000) return `$ ${(value / 1000).toFixed(1)} Mil`;
-      return `$ ${value.toFixed(0)}`;
+    const formatCurrencyUSD = (value: number) => {
+      return `USD ${Math.round(value).toLocaleString('de-DE')}`;
     };
 
     const avgStay = totalEntries > 0 ? (totalStayDaysAcrossAll / totalEntries).toFixed(2) : "0.00";
@@ -90,7 +79,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
     return { 
       totalEntries, currentlyInWorkshop, operativeCount, 
       statusData, avgStay, 
-      totalLossFormatted: formatCurrencyAbbr(totalLossAll),
+      totalLossFormatted: formatCurrencyUSD(totalLossAll),
       typeData: Object.entries(typeMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 5)
     };
   }, [entries, equipment]);
