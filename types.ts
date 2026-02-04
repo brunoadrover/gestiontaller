@@ -1,30 +1,31 @@
 
 export interface Equipment {
   id: string; // Interno
-  type: string; // Tipo
-  brand: string; // Marca
-  model: string; // Modelo
-  hours: number; // Hs
-  valorNuevo: number; // Valor de reposición (USD)
-  demerito: number; // Factor de mérito (0 a 1)
-  generalComment?: string; // Comentario permanente del equipo
+  tipo: string;
+  marca: string;
+  modelo: string;
+  horas: number;
+  valor_nuevo: number;
+  demerito: number;
+  comentario_general?: string;
 }
 
 export interface MaintenanceAction {
   id: string;
-  description: string;
-  date: string;
-  performedBy: string; // Realizado por
+  ingreso_id: string;
+  descripcion: string;
+  fecha_accion: string;
+  responsable: string;
 }
 
 export interface MaintenanceEntry {
   id: string;
-  equipmentId: string;
-  entryDate: string;
-  assignedWork?: string; // Obra Asignada
-  preliminaryInfo: string;
-  actions: MaintenanceAction[];
-  comment?: string; // Observaciones generales del ingreso
+  equipo_id: string;
+  fecha_ingreso: string;
+  obra_asignada?: string;
+  informe_fallas: string;
+  observaciones?: string;
+  acciones_taller: MaintenanceAction[]; // Relación con acciones
 }
 
 export type ViewType = 'tracking' | 'equipment' | 'dashboard';

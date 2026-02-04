@@ -14,8 +14,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
   const stats = useMemo(() => {
     const totalEntries = entries.length;
     let totalStayDaysAcrossAll = 0;
-    let totalPartsDays = 0;
-    let partsSegmentsCount = 0;
     let totalLossAll = 0;
 
     const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
@@ -28,20 +26,19 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
     let currentlyInWorkshop = 0;
 
     entries.forEach(entry => {
-      const eq = equipment.find(e => e.id === entry.equipmentId);
-      const actions = entry.actions;
+      const eq = equipment.find(e => e.id === entry.equipo_id);
+      const actions = entry.acciones_taller || [];
       if (actions.length === 0) return;
 
       const lastAction = actions[actions.length - 1];
-      const isCurrentlyOperative = lastAction.description.toLowerCase().includes('operativo') && !lastAction.description.toLowerCase().includes('entrega');
+      const isCurrentlyOperative = lastAction.descripcion.toLowerCase().includes('operativo') && !lastAction.descripcion.toLowerCase().includes('entrega');
       
-      const dateLimit = isCurrentlyOperative ? new Date(lastAction.date + 'T00:00:00') : today;
-      const stayDays = Math.max(0, Math.floor((dateLimit.getTime() - new Date(entry.entryDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)));
+      const dateLimit = isCurrentlyOperative ? new Date(lastAction.fecha_accion + 'T00:00:00') : today;
+      const stayDays = Math.max(0, Math.floor((dateLimit.getTime() - new Date(entry.fecha_ingreso + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)));
       totalStayDaysAcrossAll += stayDays;
 
-      // Calcular pérdida para este equipo
       if (eq) {
-        const entryLoss = (stayDays / 30) * 0.0325 * (eq.demerito || 0.8) * 0.5 * (eq.valorNuevo || 0);
+        const entryLoss = (stayDays / 30) * 0.0325 * (eq.demerito || 0.8) * 0.5 * (eq.valor_nuevo || 0);
         totalLossAll += entryLoss;
       }
 
@@ -49,7 +46,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
         operativeCount++;
       } else {
         currentlyInWorkshop++;
-        const lastDesc = lastAction.description.toLowerCase();
+        const lastDesc = lastAction.descripcion.toLowerCase();
         if (repuestoKeywords.some(kw => lastDesc.includes(kw))) {
           waitingPartsCount++;
         } else {
@@ -72,8 +69,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
 
     const typeMap: Record<string, number> = {};
     entries.forEach(entry => {
-      const eq = equipment.find(e => e.id === entry.equipmentId);
-      if (eq) typeMap[eq.type] = (typeMap[eq.type] || 0) + 1;
+      const eq = equipment.find(e => e.id === entry.equipo_id);
+      if (eq) typeMap[eq.tipo] = (typeMap[eq.tipo] || 0) + 1;
     });
 
     return { 
@@ -88,9 +85,12 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-800">Panel de Control (Dashboard)</h2>
-        <p className="text-slate-500">Métricas financieras y operativas de la flota.</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Panel de Control (Dashboard)</h2>
+          <p className="text-slate-500">Métricas conectadas a la base de datos de Supabase.</p>
+        </div>
+        <div className="px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase rounded-full shadow-sm animate-pulse">DB Live</div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
