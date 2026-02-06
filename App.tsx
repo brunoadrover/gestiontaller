@@ -21,13 +21,12 @@ const App: React.FC = () => {
       setIsLoaded(false);
       setError(null);
       
-      // Verificación de conexión básica
       const { data: eqData, error: eqError } = await supabase
         .from('equipos')
         .select('*')
         .order('id');
       
-      if (eqError) throw eqError;
+      if (eqError) throw new Error(`Error en tabla 'equipos': ${eqError.message}`);
       setEquipment(eqData || []);
 
       const { data: entData, error: entError } = await supabase
@@ -35,12 +34,12 @@ const App: React.FC = () => {
         .select('*, acciones_taller(*)')
         .order('fecha_ingreso', { ascending: false });
         
-      if (entError) throw entError;
+      if (entError) throw new Error(`Error en tabla 'ingresos_taller': ${entError.message}`);
       setEntries(entData || []);
 
     } catch (err: any) {
       console.error("Error crítico de Supabase:", err);
-      setError(err.message || "No se pudo establecer conexión con el servidor de base de datos.");
+      setError(err.message || "No se pudo conectar con Supabase. Verifique las tablas y la clave API.");
     } finally {
       setIsLoaded(true);
     }
@@ -138,9 +137,16 @@ const App: React.FC = () => {
           <div className="mb-6 p-6 bg-red-50 border-2 border-red-200 rounded-2xl flex flex-col items-center gap-4 text-red-700 animate-in fade-in slide-in-from-top-2 text-center max-w-xl mx-auto">
             <AlertTriangle className="w-12 h-12 flex-shrink-0" />
             <div>
-              <p className="text-lg font-black uppercase tracking-tighter">Fallo de Conexión</p>
+              <p className="text-lg font-black uppercase tracking-tighter">Error de Configuración</p>
               <p className="text-sm opacity-80 mt-1 font-medium italic">{error}</p>
-              <p className="text-[10px] mt-2 text-red-500 uppercase font-bold tracking-widest">Verifique su conexión a internet o la configuración del proyecto</p>
+              <div className="mt-4 p-3 bg-white/50 rounded text-[10px] text-left">
+                <strong>¿Por qué veo esto?</strong>
+                <ul className="list-disc ml-4 mt-1">
+                  <li>Las tablas 'equipos' o 'ingresos_taller' no han sido creadas en Supabase.</li>
+                  <li>La clave API de Supabase en supabase.ts es inválida o expiró.</li>
+                  <li>No hay conexión a internet.</li>
+                </ul>
+              </div>
               <div className="mt-6 flex gap-4 justify-center">
                 <button onClick={() => window.location.reload()} className="px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg">Reiniciar App</button>
                 <button onClick={fetchData} className="px-6 py-2 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-50 transition-all">Reintentar</button>
@@ -152,7 +158,7 @@ const App: React.FC = () => {
         {!isLoaded && !error ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Sincronizando con Supabase...</p>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Sincronizando base de datos...</p>
           </div>
         ) : (!error && renderView())}
       </main>

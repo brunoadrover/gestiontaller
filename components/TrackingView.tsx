@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -14,6 +14,7 @@ interface TrackingViewProps {
 
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'operative'>('all');
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -62,8 +63,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const getDiffDays = (d1: string, d2: string) => {
+    if (!d1 || !d2) return 0;
     const start = new Date(d1 + 'T00:00:00');
     const end = new Date(d2 + 'T00:00:00');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
     const diffTime = end.getTime() - start.getTime();
     return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
   };
@@ -74,7 +77,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const formatCurrencyAbbr = (value: number) => {
-    return `USD ${Math.round(value).toLocaleString('de-DE')}`;
+    return `USD ${Math.round(value || 0).toLocaleString('de-DE')}`;
   };
 
   const getWorkshopStatus = (entry: MaintenanceEntry) => {
@@ -82,7 +85,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     if (actions.length === 0) return { isOperative: false, isWaitingParts: false, isInRepair: true, totalDays: 0 };
 
     const lastAction = actions[actions.length - 1];
-    const desc = lastAction.descripcion.toLowerCase();
+    const desc = lastAction?.descripcion?.toLowerCase() || '';
     
     const isForcedRepair = desc.includes('entrega');
     const isOperative = !isForcedRepair && desc.includes('operativo');
@@ -96,19 +99,34 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const filteredEntries = useMemo(() => {
-    if (!searchTerm) return entries;
-    const term = searchTerm.toLowerCase();
-    return entries.filter(entry => {
-      const eq = equipment.find(e => e.id === entry.equipo_id);
-      return (
-        entry.equipo_id.toLowerCase().includes(term) ||
-        entry.informe_fallas.toLowerCase().includes(term) ||
-        (entry.obra_asignada || '').toLowerCase().includes(term) ||
-        eq?.tipo.toLowerCase().includes(term) ||
-        eq?.marca.toLowerCase().includes(term)
-      );
-    });
-  }, [entries, searchTerm, equipment]);
+    let result = entries || [];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(entry => {
+        const eq = equipment.find(e => e.id === entry.equipo_id);
+        return (
+          entry.equipo_id?.toLowerCase().includes(term) ||
+          entry.informe_fallas?.toLowerCase().includes(term) ||
+          (entry.obra_asignada || '').toLowerCase().includes(term) ||
+          eq?.tipo?.toLowerCase().includes(term) ||
+          eq?.marca?.toLowerCase().includes(term)
+        );
+      });
+    }
+
+    if (statusFilter !== 'all') {
+      result = result.filter(entry => {
+        const { isOperative, isWaitingParts, isInRepair } = getWorkshopStatus(entry);
+        if (statusFilter === 'operative') return isOperative;
+        if (statusFilter === 'parts') return isWaitingParts;
+        if (statusFilter === 'repair') return isInRepair;
+        return true;
+      });
+    }
+
+    return result;
+  }, [entries, searchTerm, statusFilter, equipment]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -147,7 +165,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       doc.setTextColor(30, 41, 59);
       
       const statusLabel = isOperative ? 'OPERATIVO' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN');
-      const headerText = `INTERNO: ${entry.equipo_id} | TIPO: ${eq?.tipo || 'N/A'} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | HS: ${eq?.horas.toLocaleString('de-DE') || '0'}`;
+      const headerText = `INTERNO: ${entry.equipo_id} | TIPO: ${eq?.tipo || 'N/A'} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | HS: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
       doc.text(headerText, 18, startY + 7);
       
       doc.setFont('helvetica', 'normal');
@@ -188,7 +206,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         ];
       });
 
-      // Agregar fila de observaciones al final de la tabla
       tableData.push([
         { 
           content: `OBSERVACIONES DEL EQUIPO: ${entry.observaciones || 'Sin notas adicionales.'}`, 
@@ -371,6 +388,19 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-2 text-sm font-medium">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select 
+              className="bg-transparent outline-none py-2 pr-2 text-slate-700 font-bold"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+            >
+              <option value="all">TODOS LOS ESTADOS</option>
+              <option value="repair">EN REPARACIÓN</option>
+              <option value="parts">ESPERANDO REPUESTOS</option>
+              <option value="operative">OPERATIVO</option>
+            </select>
+          </div>
           <button onClick={handleExportPDF} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg border border-slate-300 transition-all font-bold text-sm">
             <FileText className="w-4 h-4" /> PDF
           </button>
@@ -437,147 +467,153 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             </tr>
           </thead>
           <tbody className="text-sm">
-            {filteredEntries.map(entry => {
-              const eq = equipment.find(e => e.id === entry.equipo_id);
-              const { isOperative, isWaitingParts, totalDays } = getWorkshopStatus(entry);
-              const loss = calculateLoss(totalDays, eq);
-              const actions = entry.acciones_taller || [];
-              const firstAction = actions[0];
-              const isEditingFirst = editingActionId === firstAction?.id;
-              const isEditingEntry = editingEntryId === entry.id;
-              const firstActionDuration = actions.length > 0 ? getDiffDays(entry.fecha_ingreso, actions.length === 1 && !isOperative ? today : firstAction.fecha_accion) : 0;
+            {filteredEntries.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-20 text-center text-slate-400 italic">No se encontraron registros de taller.</td>
+              </tr>
+            ) : (
+              filteredEntries.map(entry => {
+                const eq = equipment.find(e => e.id === entry.equipo_id);
+                const { isOperative, isWaitingParts, totalDays } = getWorkshopStatus(entry);
+                const loss = calculateLoss(totalDays, eq);
+                const actions = entry.acciones_taller || [];
+                const firstAction = actions[0];
+                const isEditingFirst = editingActionId === firstAction?.id;
+                const isEditingEntry = editingEntryId === entry.id;
+                const firstActionDuration = actions.length > 0 ? getDiffDays(entry.fecha_ingreso, actions.length === 1 && !isOperative ? today : firstAction.fecha_accion) : 0;
 
-              return (
-                <React.Fragment key={entry.id}>
-                  <tr className={`${isOperative ? 'bg-green-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
-                    <td className="px-4 py-4 border-r border-slate-200">
-                      <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
-                      <div className="mt-2 flex flex-col gap-1">
-                        <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}>
-                          {totalDays} d. Total
-                        </div>
-                        <div className="text-[9px] font-black text-red-600 uppercase tracking-tighter">{formatCurrencyAbbr(loss)}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200">
-                      <div className="font-bold text-slate-800 leading-tight">{eq?.marca} {eq?.modelo}</div>
-                      <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.tipo}</div>
-                      <div className="text-[10px] text-slate-600 mt-1">Hs de arrastre: {eq?.horas.toLocaleString('de-DE') || '0'}</div>
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200">
-                      {isEditingEntry ? <input type="text" value={editEntryData.obra_asignada} onChange={e => setEditEntryData({...editEntryData, obra_asignada: e.target.value})} className={editInputClass} /> : <div className="font-bold text-slate-600">{entry.obra_asignada || 'N/A'}</div>}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
-                      {isEditingEntry ? <input type="date" value={editEntryData.fecha_ingreso} onChange={e => setEditEntryData({...editEntryData, fecha_ingreso: e.target.value})} className={editInputClass} /> : formatDateDisplay(entry.fecha_ingreso)}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200 italic text-slate-600">
-                      {isEditingEntry ? <input type="text" value={editEntryData.informe_fallas} onChange={e => setEditEntryData({...editEntryData, informe_fallas: e.target.value})} className={editInputClass} /> : entry.informe_fallas}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200">
-                      {isEditingFirst && firstAction ? (
-                        <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} />
-                      ) : firstAction ? (
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-slate-800 font-bold">{firstAction.descripcion}</span>
-                          <div className="flex gap-1">
-                            {isOperative && <span className="px-1.5 py-0.5 bg-green-200 text-green-800 text-[8px] font-black rounded uppercase shadow-sm">Operativo</span>}
-                            {isWaitingParts && <span className="px-1.5 py-0.5 bg-orange-200 text-orange-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">Esperando Repuestos</span>}
-                            {!isOperative && !isWaitingParts && <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Reparación</span>}
+                return (
+                  <React.Fragment key={entry.id}>
+                    <tr className={`${isOperative ? 'bg-green-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
+                      <td className="px-4 py-4 border-r border-slate-200">
+                        <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
+                        <div className="mt-2 flex flex-col gap-1">
+                          <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}>
+                            {totalDays} d. Total
                           </div>
+                          <div className="text-[9px] font-black text-red-600 uppercase tracking-tighter">{formatCurrencyAbbr(loss)}</div>
                         </div>
-                      ) : '-'}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-600">
-                      {isEditingFirst && firstAction ? <input type="text" value={editActionData.responsable} onChange={e => setEditActionData({...editActionData, responsable: e.target.value})} className={editInputClass} /> : firstAction?.responsable}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
-                      {isEditingFirst && firstAction ? <input type="date" value={editActionData.fecha_accion} onChange={e => setEditActionData({...editActionData, fecha_accion: e.target.value})} className={editInputClass} /> : formatDateDisplay(firstAction?.fecha_accion)}
-                    </td>
-                    <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-50/50">{firstActionDuration}d</td>
-                    <td className="px-4 py-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        {isEditingFirst || isEditingEntry ? (
-                          <button onClick={async () => { 
-                            if(isEditingFirst) await handleSaveEditAction(); 
-                            if(isEditingEntry) await handleSaveEditEntry(entry.id); 
-                          }} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"><Check className="w-4 h-4" /></button>
-                        ) : (
-                          <>
-                            <button onClick={() => { 
-                              setEditingEntryId(entry.id); 
-                              setEditingActionId(firstAction?.id || null); 
-                              setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas, fecha_ingreso: entry.fecha_ingreso }); 
-                              if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
-                            }} className="text-slate-300 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-
-                  {actions.slice(1).map((action, idx) => {
-                    const isEditing = editingActionId === action.id;
-                    const prevDate = actions[idx].fecha_accion; 
-                    const duration = getDiffDays(prevDate, (idx === actions.slice(1).length - 1 && !isOperative) ? today : action.fecha_accion);
-
-                    return (
-                      <tr key={action.id} className="bg-white border-b border-slate-50 hover:bg-slate-50 group/row transition-colors">
-                        <td colSpan={5} className="border-r border-slate-100"></td>
-                        <td className="px-4 py-2 border-r border-slate-200">
-                          {isEditing ? <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} /> : <span className="text-slate-700 font-medium">{action.descripcion}</span>}
-                        </td>
-                        <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-500">
-                          {isEditing ? <input type="text" value={editActionData.responsable} onChange={e => setEditActionData({...editActionData, responsable: e.target.value})} className={editInputClass} /> : action.responsable}
-                        </td>
-                        <td className="px-4 py-2 border-r border-slate-200 text-center font-mono text-[11px] font-bold text-slate-400">
-                          {isEditing ? <input type="date" value={editActionData.fecha_accion} onChange={e => setEditActionData({...editActionData, fecha_accion: e.target.value})} className={editInputClass} /> : formatDateDisplay(action.fecha_accion)}
-                        </td>
-                        <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-700 bg-slate-50/30 font-bold">{duration}d</td>
-                        <td className="px-4 py-2 text-center">
-                          {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-4 h-4" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-200 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-3.5 h-3.5" /></button>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  <tr className="bg-white">
-                    <td colSpan={5} className="border-r border-slate-100"></td>
-                    <td colSpan={5} className="px-4 py-3 border-b border-slate-200">
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-start gap-2 group/comment">
-                          <MessageSquare className="w-4 h-4 text-slate-300 mt-1" />
-                          {editingCommentId === entry.id ? (
-                            <div className="flex-1 flex gap-2">
-                              <textarea autoFocus value={tempComment} onChange={e => setTempComment(e.target.value)} className="flex-1 text-xs border-2 border-green-600 rounded p-2 outline-none italic bg-white text-slate-950 font-bold" rows={2} />
-                              <button onClick={async () => { await supabase.from('ingresos_taller').update({ observaciones: tempComment }).eq('id', entry.id); setEditingCommentId(null); refreshData(); }} className="bg-green-600 text-white p-2 rounded self-start"><Check className="w-4 h-4" /></button>
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200">
+                        <div className="font-bold text-slate-800 leading-tight">{eq?.marca || 'N/A'} {eq?.modelo || ''}</div>
+                        <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.tipo || 'Desconocido'}</div>
+                        <div className="text-[10px] text-slate-600 mt-1">Hs de arrastre: {eq?.horas?.toLocaleString('de-DE') || '0'}</div>
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200">
+                        {isEditingEntry ? <input type="text" value={editEntryData.obra_asignada} onChange={e => setEditEntryData({...editEntryData, obra_asignada: e.target.value})} className={editInputClass} /> : <div className="font-bold text-slate-600">{entry.obra_asignada || 'N/A'}</div>}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
+                        {isEditingEntry ? <input type="date" value={editEntryData.fecha_ingreso} onChange={e => setEditEntryData({...editEntryData, fecha_ingreso: e.target.value})} className={editInputClass} /> : formatDateDisplay(entry.fecha_ingreso)}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 italic text-slate-600">
+                        {isEditingEntry ? <input type="text" value={editEntryData.informe_fallas} onChange={e => setEditEntryData({...editEntryData, informe_fallas: e.target.value})} className={editInputClass} /> : entry.informe_fallas}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200">
+                        {isEditingFirst && firstAction ? (
+                          <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} />
+                        ) : firstAction ? (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-slate-800 font-bold">{firstAction.descripcion}</span>
+                            <div className="flex gap-1">
+                              {isOperative && <span className="px-1.5 py-0.5 bg-green-200 text-green-800 text-[8px] font-black rounded uppercase shadow-sm">Operativo</span>}
+                              {isWaitingParts && <span className="px-1.5 py-0.5 bg-orange-200 text-orange-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">Esperando Repuestos</span>}
+                              {!isOperative && !isWaitingParts && <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Reparación</span>}
                             </div>
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 text-center text-slate-600">
+                        {isEditingFirst && firstAction ? <input type="text" value={editActionData.responsable} onChange={e => setEditActionData({...editActionData, responsable: e.target.value})} className={editInputClass} /> : firstAction?.responsable}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
+                        {isEditingFirst && firstAction ? <input type="date" value={editActionData.fecha_accion} onChange={e => setEditActionData({...editActionData, fecha_accion: e.target.value})} className={editInputClass} /> : formatDateDisplay(firstAction?.fecha_accion)}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-50/50">{firstActionDuration}d</td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          {isEditingFirst || isEditingEntry ? (
+                            <button onClick={async () => { 
+                              if(isEditingFirst) await handleSaveEditAction(); 
+                              if(isEditingEntry) await handleSaveEditEntry(entry.id); 
+                            }} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"><Check className="w-4 h-4" /></button>
                           ) : (
-                            <div className="flex-1 flex justify-between items-start">
-                              <p className="text-xs text-slate-500 italic"><span className="font-black text-[10px] uppercase not-italic mr-2">Observaciones:</span>{entry.observaciones || 'Sin notas.'}</p>
-                              <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-300 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-3 h-3" /></button>
-                            </div>
+                            <>
+                              <button onClick={() => { 
+                                setEditingEntryId(entry.id); 
+                                setEditingActionId(firstAction?.id || null); 
+                                setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas, fecha_ingreso: entry.fecha_ingreso }); 
+                                if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
+                              }} className="text-slate-300 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
+                            </>
                           )}
                         </div>
-                        {selectedEntryId === entry.id ? (
-                          <div className="flex gap-2 items-center bg-slate-100 p-3 rounded-lg border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
-                            <input autoFocus type="text" value={newActionText} onChange={e => setNewActionText(e.target.value)} placeholder="¿Qué se hizo?" className="flex-[3] text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
-                            <input type="text" value={newActionResponsable} onChange={e => setNewActionResponsable(e.target.value)} placeholder="Mecánico" className="flex-1 text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
-                            <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)} className="text-xs p-2 rounded border-2 border-slate-400 w-32 font-bold bg-white text-slate-950 outline-none" />
-                            <button onClick={() => handleAddAction(entry.id)} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 disabled:bg-slate-300 shadow-md"><Save className="w-4 h-4" /></button>
-                            <button onClick={() => setSelectedEntryId(null)} className="text-slate-500 p-2 hover:bg-slate-200 rounded transition-colors"><X className="w-4 h-4" /></button>
+                      </td>
+                    </tr>
+
+                    {actions.slice(1).map((action, idx) => {
+                      const isEditing = editingActionId === action.id;
+                      const prevDate = actions[idx].fecha_accion; 
+                      const duration = getDiffDays(prevDate, (idx === actions.slice(1).length - 1 && !isOperative) ? today : action.fecha_accion);
+
+                      return (
+                        <tr key={action.id} className="bg-white border-b border-slate-50 hover:bg-slate-50 group/row transition-colors">
+                          <td colSpan={5} className="border-r border-slate-100"></td>
+                          <td className="px-4 py-2 border-r border-slate-200">
+                            {isEditing ? <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} /> : <span className="text-slate-700 font-medium">{action.descripcion}</span>}
+                          </td>
+                          <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-500">
+                            {isEditing ? <input type="text" value={editActionData.responsable} onChange={e => setEditActionData({...editActionData, responsable: e.target.value})} className={editInputClass} /> : action.responsable}
+                          </td>
+                          <td className="px-4 py-2 border-r border-slate-200 text-center font-mono text-[11px] font-bold text-slate-400">
+                            {isEditing ? <input type="date" value={editActionData.fecha_accion} onChange={e => setEditActionData({...editActionData, fecha_accion: e.target.value})} className={editInputClass} /> : formatDateDisplay(action.fecha_accion)}
+                          </td>
+                          <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-700 bg-slate-50/30 font-bold">{duration}d</td>
+                          <td className="px-4 py-2 text-center">
+                            {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-4 h-4" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-200 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-3.5 h-3.5" /></button>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    <tr className="bg-white">
+                      <td colSpan={5} className="border-r border-slate-100"></td>
+                      <td colSpan={5} className="px-4 py-3 border-b border-slate-200">
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-start gap-2 group/comment">
+                            <MessageSquare className="w-4 h-4 text-slate-300 mt-1" />
+                            {editingCommentId === entry.id ? (
+                              <div className="flex-1 flex gap-2">
+                                <textarea autoFocus value={tempComment} onChange={e => setTempComment(e.target.value)} className="flex-1 text-xs border-2 border-green-600 rounded p-2 outline-none italic bg-white text-slate-950 font-bold" rows={2} />
+                                <button onClick={async () => { await supabase.from('ingresos_taller').update({ observaciones: tempComment }).eq('id', entry.id); setEditingCommentId(null); refreshData(); }} className="bg-green-600 text-white p-2 rounded self-start"><Check className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <div className="flex-1 flex justify-between items-start">
+                                <p className="text-xs text-slate-500 italic"><span className="font-black text-[10px] uppercase not-italic mr-2">Observaciones:</span>{entry.observaciones || 'Sin notas.'}</p>
+                                <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-300 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-3 h-3" /></button>
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <button onClick={() => setSelectedEntryId(entry.id)} className="flex items-center gap-1.5 text-[10px] font-black text-green-700 hover:bg-green-700 hover:text-white px-4 py-2 rounded-full border-2 border-green-200 transition-all uppercase tracking-widest w-fit shadow-sm">
-                            <Plus className="w-3 h-3" /> Añadir Avance de Taller
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                </React.Fragment>
-              );
-            })}
+                          {selectedEntryId === entry.id ? (
+                            <div className="flex gap-2 items-center bg-slate-100 p-3 rounded-lg border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
+                              <input autoFocus type="text" value={newActionText} onChange={e => setNewActionText(e.target.value)} placeholder="¿Qué se hizo?" className="flex-[3] text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
+                              <input type="text" value={newActionResponsable} onChange={e => setNewActionResponsable(e.target.value)} placeholder="Mecánico" className="flex-1 text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
+                              <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)} className="text-xs p-2 rounded border-2 border-slate-400 w-32 font-bold bg-white text-slate-950 outline-none" />
+                              <button onClick={() => handleAddAction(entry.id)} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 disabled:bg-slate-300 shadow-md"><Save className="w-4 h-4" /></button>
+                              <button onClick={() => setSelectedEntryId(null)} className="text-slate-500 p-2 hover:bg-slate-200 rounded transition-colors"><X className="w-4 h-4" /></button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setSelectedEntryId(entry.id)} className="flex items-center gap-1.5 text-[10px] font-black text-green-700 hover:bg-green-700 hover:text-white px-4 py-2 rounded-full border-2 border-green-200 transition-all uppercase tracking-widest w-fit shadow-sm">
+                              <Plus className="w-3 h-3" /> Añadir Avance
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
