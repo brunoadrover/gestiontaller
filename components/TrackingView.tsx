@@ -459,7 +459,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <th className="px-4 py-3 border-r border-slate-200">Obra</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Ingreso</th>
               <th className="px-4 py-3 border-r border-slate-200">Falla</th>
-              <th className="px-4 py-3 border-r border-slate-200">Avance / Acción</th>
+              <th className="px-4 py-3 border-r border-slate-200">AVANCE</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Mecánico</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Fecha</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Días</th>
@@ -491,13 +491,18 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                           <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}>
                             {totalDays} d. Total
                           </div>
-                          <div className="text-[9px] font-black text-red-600 uppercase tracking-tighter">{formatCurrencyAbbr(loss)}</div>
+                          <div 
+                            title="Pérdida de facturación estimada por los días de inactividad del equipo" 
+                            className="text-[11px] font-black text-red-600 uppercase tracking-tighter cursor-help"
+                          >
+                            {formatCurrencyAbbr(loss)}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-bold text-slate-800 leading-tight">{eq?.marca || 'N/A'} {eq?.modelo || ''}</div>
                         <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.tipo || 'Desconocido'}</div>
-                        <div className="text-[10px] text-slate-600 mt-1">Hs de arrastre: {eq?.horas?.toLocaleString('de-DE') || '0'}</div>
+                        <div className="text-[10px] text-slate-600 mt-1">Hs/Km de arrastre: {eq?.horas?.toLocaleString('de-DE') || '0'}</div>
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200">
                         {isEditingEntry ? <input type="text" value={editEntryData.obra_asignada} onChange={e => setEditEntryData({...editEntryData, obra_asignada: e.target.value})} className={editInputClass} /> : <div className="font-bold text-slate-600">{entry.obra_asignada || 'N/A'}</div>}
@@ -513,7 +518,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                           <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} />
                         ) : firstAction ? (
                           <div className="flex flex-col gap-1.5">
-                            <span className="text-slate-800 font-bold">{firstAction.descripcion}</span>
+                            <span className="text-slate-800 font-normal">{firstAction.descripcion}</span>
                             <div className="flex gap-1">
                               {isOperative && <span className="px-1.5 py-0.5 bg-green-200 text-green-800 text-[8px] font-black rounded uppercase shadow-sm">Operativo</span>}
                               {isWaitingParts && <span className="px-1.5 py-0.5 bg-orange-200 text-orange-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">Esperando Repuestos</span>}
@@ -535,7 +540,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                             <button onClick={async () => { 
                               if(isEditingFirst) await handleSaveEditAction(); 
                               if(isEditingEntry) await handleSaveEditEntry(entry.id); 
-                            }} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"><Check className="w-4 h-4" /></button>
+                            }} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"><Check className="w-5 h-5" /></button>
                           ) : (
                             <>
                               <button onClick={() => { 
@@ -543,7 +548,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                 setEditingActionId(firstAction?.id || null); 
                                 setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas, fecha_ingreso: entry.fecha_ingreso }); 
                                 if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
-                              }} className="text-slate-300 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-3.5 h-3.5" /></button>
+                              }} className="text-slate-500 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-5 h-5" /></button>
                               <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
                             </>
                           )}
@@ -570,7 +575,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                           </td>
                           <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-700 bg-slate-50/30 font-bold">{duration}d</td>
                           <td className="px-4 py-2 text-center">
-                            {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-4 h-4" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-200 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-3.5 h-3.5" /></button>}
+                            {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-5 h-5" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-500 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-4.5 h-4.5" /></button>}
                           </td>
                         </tr>
                       );
@@ -590,7 +595,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                             ) : (
                               <div className="flex-1 flex justify-between items-start">
                                 <p className="text-xs text-slate-500 italic"><span className="font-black text-[10px] uppercase not-italic mr-2">Observaciones:</span>{entry.observaciones || 'Sin notas.'}</p>
-                                <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-300 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-3 h-3" /></button>
+                                <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-500 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-4 h-4" /></button>
                               </div>
                             )}
                           </div>
