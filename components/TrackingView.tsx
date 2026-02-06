@@ -256,7 +256,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       bodyStyles: { fontSize: 11, cellPadding: 6 }
     });
 
-    doc.save(`Informe_Taller_${todayStr}.pdf`);
+    let fileName = `Informe_Taller_${todayStr}`;
+    if (statusFilter !== 'all') {
+      const filterSuffix = statusFilter === 'repair' ? 'EN_REPARACION' : 
+                           statusFilter === 'parts' ? 'ESPERANDO_REPUESTOS' : 
+                           'OPERATIVO';
+      fileName += `_${filterSuffix}`;
+    }
+    doc.save(`${fileName}.pdf`);
   };
 
   const matchedEquipment = useMemo(() => {
