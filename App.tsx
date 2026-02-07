@@ -16,25 +16,54 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Función para obtener TODOS los registros saltando el límite de 1000 de Supabase
+  const fetchAllFromTable = async (tableName: string) => {
+    let allData: any[] = [];
+    let from = 0;
+    let to = 999;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .order('id')
+        .range(from, to);
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < 1000) {
+          hasMore = false;
+        } else {
+          from += 1000;
+          to += 1000;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
+  };
+
   const fetchData = async () => {
     try {
       setIsLoaded(false);
       setError(null);
       
-      const { data: eqData, error: eqError } = await supabase
-        .from('equipos')
-        .select('*')
-        .order('id');
-      
-      if (eqError) throw new Error(`Error en tabla 'equipos': ${eqError.message}`);
-      setEquipment(eqData || []);
+      // Cargamos la flota completa usando recursión
+      const fullEquipmentList = await fetchAllFromTable('equipos');
+      setEquipment(fullEquipmentList);
 
+      // Cargamos los ingresos (aquí cargamos los últimos 5000 por rendimiento, 
+      // pero podríamos usar la misma lógica si fuera necesario)
       const { data: entData, error: entError } = await supabase
         .from('ingresos_taller')
         .select('*, acciones_taller(*)')
-        .order('fecha_ingreso', { ascending: false });
+        .order('fecha_ingreso', { ascending: false })
+        .limit(5000);
         
-      if (entError) throw new Error(`Error en tabla 'ingresos_taller': ${entError.message}`);
+      if (entError) throw entError;
       setEntries(entData || []);
 
     } catch (err: any) {
@@ -140,16 +169,12 @@ const App: React.FC = () => {
               <p className="text-lg font-black uppercase tracking-tighter">Error de Configuración</p>
               <p className="text-sm opacity-80 mt-1 font-medium italic">{error}</p>
               <div className="mt-4 p-3 bg-white/50 rounded text-[10px] text-left">
-                <strong>¿Por qué veo esto?</strong>
-                <ul className="list-disc ml-4 mt-1">
-                  <li>Las tablas 'equipos' o 'ingresos_taller' no han sido creadas en Supabase.</li>
-                  <li>La clave API de Supabase en supabase.ts es inválida o expiró.</li>
-                  <li>No hay conexión a internet.</li>
-                </ul>
+                <strong>Sincronización de Datos</strong>
+                <p className="mt-1">Si no encuentra un equipo, asegúrese de que esté cargado en la pestaña 'Equipos (DB)'. Se están procesando bloques de 1000 registros para mayor seguridad.</p>
               </div>
               <div className="mt-6 flex gap-4 justify-center">
                 <button onClick={() => window.location.reload()} className="px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg">Reiniciar App</button>
-                <button onClick={fetchData} className="px-6 py-2 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-50 transition-all">Reintentar</button>
+                <button onClick={fetchData} className="px-6 py-2 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-50 transition-all">Reintentar Sincro</button>
               </div>
             </div>
           </div>
@@ -158,7 +183,7 @@ const App: React.FC = () => {
         {!isLoaded && !error ? (
           <div className="flex flex-col items-center justify-center h-64 gap-4">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Sincronizando base de datos...</p>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Descargando flota completa ({equipment.length} equipos)...</p>
           </div>
         ) : (!error && renderView())}
       </main>

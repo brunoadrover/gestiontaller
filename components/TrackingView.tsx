@@ -499,8 +499,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                             {totalDays} d. Total
                           </div>
                           <div 
-                            title="Pérdida de facturación estimada por los días de inactividad del equipo" 
-                            className="text-[11px] font-black text-red-600 uppercase tracking-tighter cursor-help"
+                            title="Impacto económico estimado por la inactividad del equipo" 
+                            className="text-[12px] font-black text-red-600 uppercase tracking-tighter cursor-help"
                           >
                             {formatCurrencyAbbr(loss)}
                           </div>
@@ -555,7 +555,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                 setEditingActionId(firstAction?.id || null); 
                                 setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas, fecha_ingreso: entry.fecha_ingreso }); 
                                 if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
-                              }} className="text-slate-500 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-5 h-5" /></button>
+                              }} className="text-slate-700 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-6 h-6" /></button>
                               <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
                             </>
                           )}
@@ -582,7 +582,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                           </td>
                           <td className="px-4 py-2 border-r border-slate-200 text-center text-slate-700 bg-slate-50/30 font-bold">{duration}d</td>
                           <td className="px-4 py-2 text-center">
-                            {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-5 h-5" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-500 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-4.5 h-4.5" /></button>}
+                            {isEditing ? <button onClick={handleSaveEditAction} className="text-green-600"><Check className="w-5 h-5" /></button> : <button onClick={() => { setEditingActionId(action.id); setEditActionData({ descripcion: action.descripcion, responsable: action.responsable, fecha_accion: action.fecha_accion }); }} className="text-slate-700 hover:text-green-600 opacity-0 group-hover/row:opacity-100"><Edit2 className="w-6 h-6" /></button>}
                           </td>
                         </tr>
                       );
@@ -602,7 +602,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                             ) : (
                               <div className="flex-1 flex justify-between items-start">
                                 <p className="text-xs text-slate-500 italic"><span className="font-black text-[10px] uppercase not-italic mr-2">Observaciones:</span>{entry.observaciones || 'Sin notas.'}</p>
-                                <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-500 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-4 h-4" /></button>
+                                <button onClick={() => { setEditingCommentId(entry.id); setTempComment(entry.observaciones || ''); }} className="text-slate-700 hover:text-green-600 opacity-0 group-hover/comment:opacity-100 transition-all"><Edit2 className="w-6 h-6" /></button>
                               </div>
                             )}
                           </div>
