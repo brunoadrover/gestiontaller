@@ -14,7 +14,8 @@ interface TrackingViewProps {
 
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'operative'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'testing' | 'operative'>('all');
+  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos'>('all');
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -55,6 +56,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [tempComment, setTempComment] = useState('');
 
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
+  const testingKeywords = ['prueba', 'probar', 'prueva'];
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
@@ -82,20 +84,36 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   const getWorkshopStatus = (entry: MaintenanceEntry) => {
     const actions = entry.acciones_taller || [];
-    if (actions.length === 0) return { isOperative: false, isWaitingParts: false, isInRepair: true, totalDays: 0 };
+    if (actions.length === 0) return { isOperative: false, isWaitingParts: false, isTesting: false, isInRepair: true, totalDays: 0 };
 
     const lastAction = actions[actions.length - 1];
     const desc = lastAction?.descripcion?.toLowerCase() || '';
     
     const isForcedRepair = desc.includes('entrega');
     const isOperative = !isForcedRepair && desc.includes('operativo');
-    const isWaitingParts = !isOperative && !isForcedRepair && repuestoKeywords.some(kw => desc.includes(kw));
-    const isInRepair = !isOperative && !isWaitingParts;
+    const isTesting = !isOperative && !isForcedRepair && testingKeywords.some(kw => desc.includes(kw));
+    const isWaitingParts = !isOperative && !isTesting && !isForcedRepair && repuestoKeywords.some(kw => desc.includes(kw));
+    const isInRepair = !isOperative && !isWaitingParts && !isTesting;
 
     const endDateStr = isOperative ? lastAction.fecha_accion : today;
     const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
-    return { isOperative, isWaitingParts, isInRepair, endDate: endDateStr, totalDays };
+    return { isOperative, isWaitingParts, isTesting, isInRepair, endDate: endDateStr, totalDays };
+  };
+
+  const getWorkshopType = (entry: MaintenanceEntry) => {
+    const eq = equipment.find(e => e.id === entry.equipo_id);
+    const id = entry.equipo_id.toUpperCase();
+    const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
+    
+    if (id.startsWith('E')) return 'pesados';
+    if (id.startsWith('V')) {
+      if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo')) {
+        return 'camiones';
+      }
+      return 'livianos';
+    }
+    return 'otros';
   };
 
   const filteredEntries = useMemo(() => {
@@ -117,16 +135,21 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
     if (statusFilter !== 'all') {
       result = result.filter(entry => {
-        const { isOperative, isWaitingParts, isInRepair } = getWorkshopStatus(entry);
+        const { isOperative, isWaitingParts, isTesting, isInRepair } = getWorkshopStatus(entry);
         if (statusFilter === 'operative') return isOperative;
         if (statusFilter === 'parts') return isWaitingParts;
+        if (statusFilter === 'testing') return isTesting;
         if (statusFilter === 'repair') return isInRepair;
         return true;
       });
     }
 
+    if (workshopFilter !== 'all') {
+      result = result.filter(entry => getWorkshopType(entry) === workshopFilter);
+    }
+
     return result;
-  }, [entries, searchTerm, statusFilter, equipment]);
+  }, [entries, searchTerm, statusFilter, workshopFilter, equipment]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -145,15 +168,16 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
     filteredEntries.forEach((entry, index) => {
       const eq = equipment.find(e => e.id === entry.equipo_id);
-      const { isOperative, isWaitingParts, totalDays } = getWorkshopStatus(entry);
+      const { isOperative, isWaitingParts, isTesting, totalDays } = getWorkshopStatus(entry);
       const loss = calculateLoss(totalDays, eq);
       totalLossAll += loss;
       totalStayDaysAll += totalDays;
       if (isOperative) operativeCount++; else currentlyInWorkshopCount++;
 
-      let headerBg = [219, 234, 254]; 
-      if (isOperative) headerBg = [220, 252, 231]; 
-      else if (isWaitingParts) headerBg = [255, 237, 213]; 
+      let headerBg = [219, 234, 254]; // Azul suave por defecto (En Reparación)
+      if (isOperative) headerBg = [220, 252, 231]; // Verde suave
+      else if (isTesting) headerBg = [237, 233, 254]; // Violeta suave
+      else if (isWaitingParts) headerBg = [255, 237, 213]; // Naranja suave
 
       doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
       doc.rect(14, startY, 269, 22, 'F');
@@ -164,7 +188,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(30, 41, 59);
       
-      const statusLabel = isOperative ? 'OPERATIVO' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN');
+      const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
       const headerText = `INTERNO: ${entry.equipo_id} | TIPO: ${eq?.tipo || 'N/A'} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | HS: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
       doc.text(headerText, 18, startY + 7);
       
@@ -257,12 +281,17 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     });
 
     let fileName = `Informe_Taller_${todayStr}`;
+    
     if (statusFilter !== 'all') {
-      const filterSuffix = statusFilter === 'repair' ? 'EN_REPARACION' : 
-                           statusFilter === 'parts' ? 'ESPERANDO_REPUESTOS' : 
-                           'OPERATIVO';
+      const filterSuffix = statusFilter.toUpperCase();
       fileName += `_${filterSuffix}`;
     }
+
+    if (workshopFilter !== 'all') {
+      const workshopSuffix = workshopFilter.toUpperCase();
+      fileName += `_${workshopSuffix}`;
+    }
+
     doc.save(`${fileName}.pdf`);
   };
 
@@ -395,6 +424,21 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          
+          <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-2 text-sm font-medium">
+            <Wrench className="w-3.5 h-3.5 text-slate-400" />
+            <select 
+              className="bg-transparent outline-none py-2 pr-2 text-slate-700 font-bold"
+              value={workshopFilter}
+              onChange={(e) => setWorkshopFilter(e.target.value as any)}
+            >
+              <option value="all">TODOS LOS TALLERES</option>
+              <option value="pesados">TALLER PESADOS</option>
+              <option value="camiones">TALLER CAMIONES</option>
+              <option value="livianos">TALLER LIVIANOS</option>
+            </select>
+          </div>
+
           <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-2 text-sm font-medium">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
             <select 
@@ -405,9 +449,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <option value="all">TODOS LOS ESTADOS</option>
               <option value="repair">EN REPARACIÓN</option>
               <option value="parts">ESPERANDO REPUESTOS</option>
+              <option value="testing">EN PRUEBA</option>
               <option value="operative">OPERATIVO</option>
             </select>
           </div>
+
           <button onClick={handleExportPDF} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg border border-slate-300 transition-all font-bold text-sm">
             <FileText className="w-4 h-4" /> PDF
           </button>
@@ -481,7 +527,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             ) : (
               filteredEntries.map(entry => {
                 const eq = equipment.find(e => e.id === entry.equipo_id);
-                const { isOperative, isWaitingParts, totalDays } = getWorkshopStatus(entry);
+                const { isOperative, isWaitingParts, isTesting, totalDays } = getWorkshopStatus(entry);
                 const loss = calculateLoss(totalDays, eq);
                 const actions = entry.acciones_taller || [];
                 const firstAction = actions[0];
@@ -491,11 +537,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
                 return (
                   <React.Fragment key={entry.id}>
-                    <tr className={`${isOperative ? 'bg-green-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
+                    <tr className={`${isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
                         <div className="mt-2 flex flex-col gap-1">
-                          <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white')}`}>
+                          <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isTesting ? 'bg-violet-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white'))}`}>
                             {totalDays} d. Total
                           </div>
                           <div 
@@ -528,8 +574,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                             <span className="text-slate-800 font-normal">{firstAction.descripcion}</span>
                             <div className="flex gap-1">
                               {isOperative && <span className="px-1.5 py-0.5 bg-green-200 text-green-800 text-[8px] font-black rounded uppercase shadow-sm">Operativo</span>}
+                              {isTesting && <span className="px-1.5 py-0.5 bg-violet-200 text-violet-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Prueba</span>}
                               {isWaitingParts && <span className="px-1.5 py-0.5 bg-orange-200 text-orange-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">Esperando Repuestos</span>}
-                              {!isOperative && !isWaitingParts && <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Reparación</span>}
+                              {!isOperative && !isWaitingParts && !isTesting && <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Reparación</span>}
                             </div>
                           </div>
                         ) : '-'}
