@@ -230,18 +230,21 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         ];
       });
 
-      tableData.push([
-        { 
-          content: `OBSERVACIONES DEL EQUIPO: ${entry.observaciones || 'Sin notas adicionales.'}`, 
-          colSpan: 5, 
-          styles: { 
-            fontStyle: 'italic', 
-            fillColor: [248, 250, 252], 
-            textColor: [100, 116, 139],
-            fontSize: 7
-          } 
-        }
-      ]);
+      // Lógica de Observaciones en PDF solicitada
+      if (entry.observaciones && entry.observaciones.trim() !== "") {
+        tableData.push([
+          { 
+            content: `OBSERVACIONES: ${entry.observaciones}`, 
+            colSpan: 5, 
+            styles: { 
+              fontStyle: 'italic', 
+              fillColor: [248, 250, 252], 
+              textColor: [100, 116, 139],
+              fontSize: 7
+            } 
+          }
+        ]);
+      }
 
       autoTable(doc, {
         startY: startY,
