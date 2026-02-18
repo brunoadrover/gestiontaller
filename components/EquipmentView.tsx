@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Equipment } from '../types';
-import { Search, Plus, Trash2, Edit2, AlertCircle, X, MessageSquare, Check } from 'lucide-react';
+import { Search, Plus, Trash2, Edit2, AlertCircle, X, Check } from 'lucide-react';
 import { supabase } from '../supabase';
 
 interface EquipmentViewProps {
@@ -10,7 +10,9 @@ interface EquipmentViewProps {
 }
 
 const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [inputText, setInputText] = useState('');
+  const [appliedFilter, setAppliedFilter] = useState('');
+  
   const [isAdding, setIsAdding] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -28,11 +30,43 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
     comentario_general: ''
   });
 
-  const filtered = equipment.filter(e => 
-    e.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.tipo.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Helper para normalizar texto (quitar acentos, minúsculas, nulos)
+  const normalizeText = (text: any) => {
+    if (text === null || text === undefined) return '';
+    return String(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  };
+
+  const filteredEquipment = useMemo(() => {
+    if (!appliedFilter.trim()) return equipment;
+    
+    const term = normalizeText(appliedFilter);
+    
+    return equipment.filter(e => 
+      normalizeText(e.id).includes(term) ||
+      normalizeText(e.marca).includes(term) ||
+      normalizeText(e.modelo).includes(term) ||
+      normalizeText(e.tipo).includes(term) ||
+      normalizeText(e.comentario_general).includes(term)
+    );
+  }, [equipment, appliedFilter]);
+
+  const displayedEquipment = filteredEquipment.slice(0, 100);
+  const totalResults = filteredEquipment.length;
+
+  const handleSearch = () => {
+    setAppliedFilter(inputText);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  };
+
+  const clearSearch = () => {
+    setInputText('');
+    setAppliedFilter('');
+  };
 
   const handleAdd = async () => {
     if (!newEq.id) {
@@ -128,22 +162,39 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-normal text-slate-800">Base de Datos de Equipos</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Total Equipos: {equipment.length} | Mostrando: {displayedEquipment.length} {totalResults > 100 ? `(de ${totalResults} filtrados)` : ''}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <input 
-              type="text" 
-              placeholder="Buscar por interno, marca..."
-              className="pl-10 pr-4 py-2 bg-white text-slate-900 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 w-full md:w-64 font-normal text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+          <div className="flex gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input 
+                type="text" 
+                placeholder="Interno, marca o tipo..."
+                className="pl-10 pr-4 py-2 bg-white text-slate-900 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 w-full font-normal text-sm"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+              />
+              {inputText && (
+                <button onClick={clearSearch} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            <button 
+              onClick={handleSearch}
+              className="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 shadow-md font-bold text-sm transition-all flex items-center gap-2"
+            >
+              <Search className="w-4 h-4" /> Buscar
+            </button>
           </div>
           <button 
             type="button"
             onClick={() => setIsAdding(!isAdding)}
-            className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg hover:bg-green-800 shadow-md whitespace-nowrap font-normal text-sm transition-all"
+            className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg hover:bg-green-800 shadow-md whitespace-nowrap font-normal text-sm transition-all justify-center md:justify-start"
           >
             {isAdding ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
             {isAdding ? 'Cancelar' : 'Nuevo Equipo'}
@@ -213,63 +264,71 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
-              {filtered.map(eq => {
-                const isEditing = editingId === eq.id;
-                return (
-                  <tr key={eq.id} className={`${isEditing ? 'bg-green-50/50' : 'hover:bg-slate-50'} transition-colors group`}>
-                    <td className="px-6 py-4">
-                      {isEditing ? (
-                        <input 
-                          type="text" 
-                          value={editData?.id || ''} 
-                          onChange={e => setEditData(p => p ? {...p, id: e.target.value.toUpperCase()} : null)} 
-                          className={inlineInputClass + " uppercase font-normal"}
-                        />
-                      ) : (
-                        <span className="font-normal text-green-700 text-base">{eq.id}</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {isEditing ? <input type="text" value={editData?.tipo || ''} onChange={e => setEditData(p => p ? {...p, tipo: e.target.value} : null)} className={inlineInputClass}/> : <span className="text-slate-600 font-normal">{eq.tipo}</span>}
-                    </td>
-                    <td className="px-6 py-4">
-                      {isEditing ? (
-                        <div className="flex gap-1">
-                          <input type="text" value={editData?.marca || ''} onChange={e => setEditData(p => p ? {...p, marca: e.target.value} : null)} className={inlineInputClass} placeholder="Marca"/>
-                          <input type="text" value={editData?.modelo || ''} onChange={e => setEditData(p => p ? {...p, modelo: e.target.value} : null)} className={inlineInputClass} placeholder="Modelo"/>
-                        </div>
-                      ) : <div className="text-slate-800 font-normal">{eq.marca} <span className="text-slate-500 font-normal">{eq.modelo || '-'}</span></div>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {isEditing ? <input type="number" value={editData?.horas || 0} onChange={e => setEditData(p => p ? {...p, horas: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-900 font-normal">{eq.horas.toLocaleString()}</span>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {isEditing ? <input type="number" value={editData?.valor_nuevo || 0} onChange={e => setEditData(p => p ? {...p, valor_nuevo: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-700 font-normal">${(eq.valor_nuevo || 0).toLocaleString()}</span>}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {isEditing ? <input type="number" step="0.01" value={editData?.demerito || 0} onChange={e => setEditData(p => p ? {...p, demerito: parseFloat(e.target.value) || 0} : null)} className={inlineInputClass + " text-center"}/> : <span className="tabular-nums text-slate-500 font-normal">{eq.demerito}</span>}
-                    </td>
-                    <td className="px-6 py-4 text-slate-500 italic text-xs">
-                      {isEditing ? <input type="text" value={editData?.comentario_general || ''} onChange={e => setEditData(p => p ? {...p, comentario_general: e.target.value} : null)} className={inlineInputClass}/> : <span className="max-w-xs truncate block font-normal">{eq.comentario_general || '-'}</span>}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-2">
+              {displayedEquipment.length > 0 ? (
+                displayedEquipment.map(eq => {
+                  const isEditing = editingId === eq.id;
+                  return (
+                    <tr key={eq.id} className={`${isEditing ? 'bg-green-50/50' : 'hover:bg-slate-50'} transition-colors group`}>
+                      <td className="px-6 py-4">
                         {isEditing ? (
-                          <>
-                            <button onClick={handleEditSave} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 shadow-md"><Check className="w-4 h-4" /></button>
-                            <button onClick={() => {setEditingId(null); setEditData(null);}} className="bg-slate-200 text-slate-600 p-2 rounded-lg hover:bg-slate-300"><X className="w-4 h-4" /></button>
-                          </>
+                          <input 
+                            type="text" 
+                            value={editData?.id || ''} 
+                            onChange={e => setEditData(p => p ? {...p, id: e.target.value.toUpperCase()} : null)} 
+                            className={inlineInputClass + " uppercase font-normal"}
+                          />
                         ) : (
-                          <>
-                            <button onClick={() => handleEditStart(eq)} className="text-slate-400 hover:text-green-600 transition-all p-1.5 hover:bg-green-50 rounded-lg"><Edit2 className="w-4 h-4" /></button>
-                            <button onClick={() => setDeleteConfirmId(eq.id)} className="text-slate-400 hover:text-red-600 transition-all p-1.5 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
-                          </>
+                          <span className="font-normal text-green-700 text-base">{eq.id}</span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-6 py-4">
+                        {isEditing ? <input type="text" value={editData?.tipo || ''} onChange={e => setEditData(p => p ? {...p, tipo: e.target.value} : null)} className={inlineInputClass}/> : <span className="text-slate-600 font-normal">{eq.tipo}</span>}
+                      </td>
+                      <td className="px-6 py-4">
+                        {isEditing ? (
+                          <div className="flex gap-1">
+                            <input type="text" value={editData?.marca || ''} onChange={e => setEditData(p => p ? {...p, marca: e.target.value} : null)} className={inlineInputClass} placeholder="Marca"/>
+                            <input type="text" value={editData?.modelo || ''} onChange={e => setEditData(p => p ? {...p, modelo: e.target.value} : null)} className={inlineInputClass} placeholder="Modelo"/>
+                          </div>
+                        ) : <div className="text-slate-800 font-normal">{eq.marca} <span className="text-slate-500 font-normal">{eq.modelo || '-'}</span></div>}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {isEditing ? <input type="number" value={editData?.horas || 0} onChange={e => setEditData(p => p ? {...p, horas: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-900 font-normal">{eq.horas.toLocaleString()}</span>}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {isEditing ? <input type="number" value={editData?.valor_nuevo || 0} onChange={e => setEditData(p => p ? {...p, valor_nuevo: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-700 font-normal">${(eq.valor_nuevo || 0).toLocaleString()}</span>}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {isEditing ? <input type="number" step="0.01" value={editData?.demerito || 0} onChange={e => setEditData(p => p ? {...p, demerito: parseFloat(e.target.value) || 0} : null)} className={inlineInputClass + " text-center"}/> : <span className="tabular-nums text-slate-500 font-normal">{eq.demerito}</span>}
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 italic text-xs">
+                        {isEditing ? <input type="text" value={editData?.comentario_general || ''} onChange={e => setEditData(p => p ? {...p, comentario_general: e.target.value} : null)} className={inlineInputClass}/> : <span className="max-w-xs truncate block font-normal">{eq.comentario_general || '-'}</span>}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          {isEditing ? (
+                            <>
+                              <button onClick={handleEditSave} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 shadow-md"><Check className="w-4 h-4" /></button>
+                              <button onClick={() => {setEditingId(null); setEditData(null);}} className="bg-slate-200 text-slate-600 p-2 rounded-lg hover:bg-slate-300"><X className="w-4 h-4" /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => handleEditStart(eq)} className="text-slate-400 hover:text-green-600 transition-all p-1.5 hover:bg-green-50 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                              <button onClick={() => setDeleteConfirmId(eq.id)} className="text-slate-400 hover:text-red-600 transition-all p-1.5 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400 italic">
+                    {appliedFilter ? "No se encontraron equipos con ese criterio." : "Utilice el buscador para encontrar un equipo."}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
