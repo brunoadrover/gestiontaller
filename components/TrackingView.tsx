@@ -174,10 +174,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       totalStayDaysAll += totalDays;
       if (isOperative) operativeCount++; else currentlyInWorkshopCount++;
 
-      let headerBg = [219, 234, 254]; // Azul suave por defecto (En Reparación)
-      if (isOperative) headerBg = [220, 252, 231]; // Verde suave
-      else if (isTesting) headerBg = [237, 233, 254]; // Violeta suave
-      else if (isWaitingParts) headerBg = [255, 237, 213]; // Naranja suave
+      let headerBg = [219, 234, 254]; 
+      if (isOperative) headerBg = [220, 252, 231]; 
+      else if (isTesting) headerBg = [237, 233, 254]; 
+      else if (isWaitingParts) headerBg = [255, 237, 213]; 
 
       doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
       doc.rect(14, startY, 269, 22, 'F');
@@ -216,21 +216,30 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
       const actions = entry.acciones_taller || [];
       const tableData: any[] = actions.map((action, idx) => {
-        const prevDate = idx === 0 ? entry.fecha_ingreso : actions[idx - 1].fecha_accion;
-        const isLast = idx === actions.length - 1;
-        const endDateForAction = (isLast && !isOperative) ? todayStr : action.fecha_accion;
-        const actionDuration = getDiffDays(prevDate, endDateForAction);
+        const currentActionDate = action.fecha_accion;
+        // Lógica corregida para el PDF: La duración es (Fecha Siguiente Evento - Fecha Este Evento)
+        // Si no hay siguiente evento, es (Hoy - Este Evento) salvo que sea Operativo (fin de ciclo).
+        const nextAction = actions[idx + 1];
+        let endDateCalc = todayStr;
+        if (nextAction) {
+          endDateCalc = nextAction.fecha_accion;
+        } else {
+          endDateCalc = isOperative ? currentActionDate : todayStr;
+        }
+
+        const durationStage = getDiffDays(currentActionDate, endDateCalc);
+        // La estadía acumulada sigue siendo desde el ingreso hasta el cierre de esta etapa
+        const accumulated = getDiffDays(entry.fecha_ingreso, endDateCalc);
 
         return [
           formatDateDisplay(action.fecha_accion),
           action.descripcion,
           action.responsable || '-',
-          `${actionDuration} d.`,
-          `${getDiffDays(entry.fecha_ingreso, endDateForAction)} d.`
+          `${durationStage} d.`,
+          `${accumulated} d.`
         ];
       });
 
-      // Lógica de Observaciones en PDF solicitada
       if (entry.observaciones && entry.observaciones.trim() !== "") {
         tableData.push([
           { 
@@ -536,7 +545,18 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                 const firstAction = actions[0];
                 const isEditingFirst = editingActionId === firstAction?.id;
                 const isEditingEntry = editingEntryId === entry.id;
-                const firstActionDuration = actions.length > 0 ? getDiffDays(entry.fecha_ingreso, actions.length === 1 && !isOperative ? today : firstAction.fecha_accion) : 0;
+                
+                // LÓGICA DE DURACIÓN (Corregida)
+                // Se calcula la duración de esta acción hasta la siguiente.
+                // Si no hay siguiente, se calcula hasta HOY (si no es operativo) o se cierra (si es operativo).
+                const nextActionForFirst = actions[1];
+                const firstActionEndDate = nextActionForFirst 
+                  ? nextActionForFirst.fecha_accion 
+                  : (isOperative ? firstAction?.fecha_accion : today);
+                
+                const firstActionDuration = firstAction 
+                  ? getDiffDays(firstAction.fecha_accion, firstActionEndDate) 
+                  : 0;
 
                 return (
                   <React.Fragment key={entry.id}>
@@ -615,8 +635,16 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
                     {actions.slice(1).map((action, idx) => {
                       const isEditing = editingActionId === action.id;
-                      const prevDate = actions[idx].fecha_accion; 
-                      const duration = getDiffDays(prevDate, (idx === actions.slice(1).length - 1 && !isOperative) ? today : action.fecha_accion);
+                      // LÓGICA DE DURACIÓN (Filas siguientes)
+                      // idx es el índice del slice (0, 1, 2...). 
+                      // action es actions[1], actions[2]...
+                      // Necesitamos el siguiente del original: actions[idx + 2]
+                      const nextAction = actions[idx + 2];
+                      const endDate = nextAction 
+                        ? nextAction.fecha_accion 
+                        : (isOperative ? action.fecha_accion : today);
+                      
+                      const duration = getDiffDays(action.fecha_accion, endDate);
 
                       return (
                         <tr key={action.id} className="bg-white border-b border-slate-50 hover:bg-slate-50 group/row transition-colors">
