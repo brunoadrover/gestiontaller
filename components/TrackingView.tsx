@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter } from 'lucide-react';
+import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -19,6 +19,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  
+  // States for Technical Report Modal
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [currentReportEntry, setCurrentReportEntry] = useState<MaintenanceEntry | null>(null);
+  const [reportData, setReportData] = useState<Partial<TechnicalReport>>({
+    motor: '',
+    sistema_hidraulico: '',
+    sistema_electrico: '',
+    sistema_neumatico: '',
+    estructura: '',
+    cabina: '',
+    tren_rodante: '',
+    elementos_desgaste: '',
+    componentes_especificos: '',
+    observaciones: ''
+  });
   
   const today = new Date().toLocaleDateString('en-CA'); 
   
@@ -59,6 +75,18 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
   const testingKeywords = ['prueba', 'probar', 'prueva'];
+
+  // --- HELPER PARA EXTRAER INFORME (Array u Objeto) ---
+  const getExistingReport = (entry: MaintenanceEntry): TechnicalReport | null => {
+    if (!entry.informe_taller) return null;
+    
+    if (Array.isArray(entry.informe_taller)) {
+      return entry.informe_taller.length > 0 ? entry.informe_taller[0] : null;
+    }
+    
+    // Si es un objeto único (no array)
+    return entry.informe_taller as TechnicalReport;
+  };
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
@@ -308,6 +336,132 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.save(`${fileName}.pdf`);
   };
 
+  const handleExportReportPDF = () => {
+    if (!currentReportEntry) return;
+
+    const eq = equipment.find(e => e.id === currentReportEntry.equipo_id);
+    const doc = new jsPDF();
+    const todayStr = new Date().toLocaleDateString('es-AR');
+
+    // --- Header ---
+    doc.setFillColor(30, 41, 59); // Slate 800
+    doc.rect(0, 0, 210, 25, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('times', 'bold');
+    doc.setFontSize(22);
+    doc.text('GEyT', 14, 18); // Ajustado ligeramente
+    
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INFORME TÉCNICO', 200, 13, { align: 'right' }); // Texto simplificado
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Fecha de Emisión: ${todayStr}`, 200, 19, { align: 'right' });
+
+    // --- Datos del Equipo ---
+    let startY = 35;
+    
+    doc.setFillColor(241, 245, 249); // Slate 100
+    doc.rect(14, startY, 182, 35, 'F');
+    doc.setDrawColor(203, 213, 225); // Slate 300
+    doc.rect(14, startY, 182, 35, 'S');
+
+    doc.setFontSize(10);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATOS DEL EQUIPO E INGRESO', 18, startY + 6);
+    
+    const estSalida = currentReportEntry.fecha_salida ? formatDateDisplay(currentReportEntry.fecha_salida) : 'N/A';
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    // Fila 1
+    doc.text(`Interno:`, 18, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${currentReportEntry.equipo_id}`, 35, startY + 14);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Marca/Modelo:`, 70, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Hs Arrastre:`, 140, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 160, startY + 14);
+
+    // Fila 2
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Obra:`, 18, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${currentReportEntry.obra_asignada || 'Sin asignar'}`, 35, startY + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Ingreso:`, 70, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Salida Est.:`, 140, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${estSalida}`, 160, startY + 22);
+
+    // Fila 3 (Motivo)
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Motivo Ingreso:`, 18, startY + 30);
+    doc.text(currentReportEntry.informe_fallas || '-', 45, startY + 30);
+
+
+    // --- Evaluación Técnica ---
+    startY += 45;
+    
+    const techData = [
+      ['Motor', reportData.motor || '-'],
+      ['Sistema Hidráulico', reportData.sistema_hidraulico || '-'],
+      ['Sistema Eléctrico', reportData.sistema_electrico || '-'],
+      ['Sistema Neumático', reportData.sistema_neumatico || '-'],
+      ['Estructura / Chasis', reportData.estructura || '-'],
+      ['Cabina / Operador', reportData.cabina || '-'],
+      ['Tren Rodante / Neumáticos', reportData.tren_rodante || '-'],
+      ['Elementos de Desgaste', reportData.elementos_desgaste || '-'],
+      ['Componentes Específicos', reportData.componentes_especificos || '-'],
+      ['Observaciones Finales', reportData.observaciones || '-']
+    ];
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('EVALUACIÓN TÉCNICA', 14, startY - 2);
+
+    autoTable(doc, {
+      startY: startY,
+      head: [['Sistema / Componente', 'Estado / Observaciones']],
+      body: techData,
+      theme: 'grid',
+      headStyles: { fillColor: [21, 128, 61], fontSize: 9, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 50, fontStyle: 'bold', fillColor: [248, 250, 252] },
+        1: { cellWidth: 'auto' }
+      },
+      styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' }
+    });
+
+    // Se ha eliminado el bloque de Historial de Intervenciones
+
+    // --- Footer ---
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Página ${i} de ${pageCount} - Generado por Sistema GEyT`, 105, 290, { align: 'center' });
+    }
+
+    const fileName = `${currentReportEntry.equipo_id}_${todayStr.replace(/\//g, '-')}_informe_taller.pdf`;
+    doc.save(fileName);
+  };
+
   const matchedEquipment = useMemo(() => {
     const searchId = newEntry.interno.trim().toLowerCase();
     if (!searchId) return null;
@@ -428,7 +582,72 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     }
   };
 
+  const handleOpenReport = (entry: MaintenanceEntry) => {
+    setCurrentReportEntry(entry);
+    
+    // Usar la función auxiliar segura
+    const existingReport = getExistingReport(entry);
+
+    if (existingReport) {
+      setReportData({
+        motor: existingReport.motor || '',
+        sistema_hidraulico: existingReport.sistema_hidraulico || '',
+        sistema_electrico: existingReport.sistema_electrico || '',
+        sistema_neumatico: existingReport.sistema_neumatico || '',
+        estructura: existingReport.estructura || '',
+        cabina: existingReport.cabina || '',
+        tren_rodante: existingReport.tren_rodante || '',
+        elementos_desgaste: existingReport.elementos_desgaste || '',
+        componentes_especificos: existingReport.componentes_especificos || '',
+        observaciones: existingReport.observaciones || ''
+      });
+    } else {
+      // Resetear formulario si no hay informe previo
+      setReportData({
+        motor: '',
+        sistema_hidraulico: '',
+        sistema_electrico: '',
+        sistema_neumatico: '',
+        estructura: '',
+        cabina: '',
+        tren_rodante: '',
+        elementos_desgaste: '',
+        componentes_especificos: '',
+        observaciones: ''
+      });
+    }
+    setShowReportModal(true);
+  };
+
+  const handleSaveReport = async () => {
+    if (!currentReportEntry) return;
+    setIsProcessing(true);
+    try {
+      const payload = {
+        ...reportData,
+        ingreso_id: currentReportEntry.id,
+        equipo_id: currentReportEntry.equipo_id
+      };
+
+      // Upsert: Si existe (unique constraint en ingreso_id), actualiza. Si no, inserta.
+      const { error } = await supabase
+        .from('informe_taller')
+        .upsert(payload, { onConflict: 'ingreso_id' });
+
+      if (error) throw error;
+
+      await refreshData();
+      setShowReportModal(false);
+    } catch (e) {
+      alert("Error guardando informe técnico: " + (e as any).message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const editInputClass = "w-full text-xs p-1.5 border-2 border-slate-400 rounded outline-none font-bold bg-white text-slate-950 shadow-inner";
+  const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
+  const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase tracking-wide mb-1";
 
   return (
     <div className="space-y-6">
@@ -560,6 +779,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                 const isEditingFirst = editingActionId === firstAction?.id;
                 const isEditingEntry = editingEntryId === entry.id;
                 
+                // Usar el helper para verificar si hay reporte
+                const hasReport = !!getExistingReport(entry);
+                
                 const nextActionForFirst = actions[1];
                 const firstActionEndDate = nextActionForFirst 
                   ? nextActionForFirst.fecha_accion 
@@ -626,14 +848,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-50/50">{firstActionDuration}d</td>
                       <td className="px-4 py-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <button 
+                            onClick={() => handleOpenReport(entry)} 
+                            className={`p-1 rounded transition-colors ${hasReport ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-slate-300 hover:text-indigo-500'}`}
+                            title="Informe Técnico"
+                          >
+                            <ClipboardCheck className="w-5 h-5" />
+                          </button>
+
                           {isEditingFirst || isEditingEntry ? (
                             <button onClick={async () => { 
                               if(isEditingFirst) await handleSaveEditAction(); 
                               if(isEditingEntry) await handleSaveEditEntry(entry.id); 
                             }} className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"><Check className="w-5 h-5" /></button>
                           ) : (
-                            <>
+                            <div className="flex gap-1">
                               <button onClick={() => { 
                                 setEditingEntryId(entry.id); 
                                 setEditingActionId(firstAction?.id || null); 
@@ -644,9 +874,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                   fecha_salida: entry.fecha_salida || '' 
                                 }); 
                                 if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
-                              }} className="text-slate-700 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-6 h-6" /></button>
-                              <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
-                            </>
+                              }} className="text-slate-400 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all p-1"><Edit2 className="w-4 h-4" /></button>
+                              <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all p-1"><Trash2 className="w-4 h-4" /></button>
+                            </div>
                           )}
                         </div>
                       </td>
@@ -732,6 +962,89 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             <div className="flex gap-3">
               <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">Cancelar</button>
               <button onClick={confirmDeleteEntry} disabled={isProcessing} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm shadow-lg disabled:bg-slate-300">{isProcessing ? '...' : 'Eliminar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Informe Técnico */}
+      {showReportModal && currentReportEntry && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold flex items-center gap-3">
+                  <ClipboardCheck className="w-6 h-6 text-green-400" />
+                  Informe Técnico de Taller
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">
+                  Interno: {currentReportEntry.equipo_id} | Ingreso: {formatDateDisplay(currentReportEntry.fecha_ingreso)}
+                </p>
+              </div>
+              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div>
+                  <label className={reportLabelClass}>Motor</label>
+                  <textarea value={reportData.motor} onChange={e => setReportData({...reportData, motor: e.target.value})} className={reportTextClass} placeholder="Estado del motor, fugas, ruidos..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Sistema Hidráulico</label>
+                  <textarea value={reportData.sistema_hidraulico} onChange={e => setReportData({...reportData, sistema_hidraulico: e.target.value})} className={reportTextClass} placeholder="Cilindros, mangueras, bombas..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Sistema Eléctrico</label>
+                  <textarea value={reportData.sistema_electrico} onChange={e => setReportData({...reportData, sistema_electrico: e.target.value})} className={reportTextClass} placeholder="Baterías, arranque, luces..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Sistema Neumático</label>
+                  <textarea value={reportData.sistema_neumatico} onChange={e => setReportData({...reportData, sistema_neumatico: e.target.value})} className={reportTextClass} placeholder="Compresor, válvulas, fugas aire..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Estructura / Chasis</label>
+                  <textarea value={reportData.estructura} onChange={e => setReportData({...reportData, estructura: e.target.value})} className={reportTextClass} placeholder="Fisuras, soldaduras, deformaciones..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Cabina / Operador</label>
+                  <textarea value={reportData.cabina} onChange={e => setReportData({...reportData, cabina: e.target.value})} className={reportTextClass} placeholder="Instrumentos, asiento, vidrios..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Tren Rodante / Neumáticos</label>
+                  <textarea value={reportData.tren_rodante} onChange={e => setReportData({...reportData, tren_rodante: e.target.value})} className={reportTextClass} placeholder="Desgaste orugas, estado cubiertas..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Elementos de Desgaste</label>
+                  <textarea value={reportData.elementos_desgaste} onChange={e => setReportData({...reportData, elementos_desgaste: e.target.value})} className={reportTextClass} placeholder="Cuchillas, dientes, pernos..." />
+                </div>
+                <div>
+                  <label className={reportLabelClass}>Componentes Específicos</label>
+                  <textarea value={reportData.componentes_especificos} onChange={e => setReportData({...reportData, componentes_especificos: e.target.value})} className={reportTextClass} placeholder="Otros sistemas especiales..." />
+                </div>
+              </div>
+              <div className="mt-6">
+                <label className={reportLabelClass}>Observaciones Generales</label>
+                <textarea value={reportData.observaciones} onChange={e => setReportData({...reportData, observaciones: e.target.value})} className="w-full bg-white border-2 border-slate-300 rounded p-4 text-sm text-slate-900 h-32 outline-none focus:border-green-500 font-medium resize-none" placeholder="Conclusiones generales del estado del equipo..." />
+              </div>
+            </div>
+
+            <div className="p-6 bg-white border-t border-slate-200 flex justify-between gap-3 items-center">
+              <button 
+                onClick={handleExportReportPDF} 
+                className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md transition-all flex items-center gap-2"
+              >
+                <Download className="w-5 h-5" />
+                Exportar PDF
+              </button>
+              
+              <div className="flex gap-3">
+                <button onClick={() => setShowReportModal(false)} className="px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancelar</button>
+                <button onClick={handleSaveReport} disabled={isProcessing} className="px-8 py-3 bg-green-700 text-white font-bold rounded-xl hover:bg-green-800 shadow-lg transition-all disabled:bg-slate-300 flex items-center gap-2">
+                  <Save className="w-5 h-5" />
+                  {isProcessing ? 'Guardando...' : 'Guardar Informe'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

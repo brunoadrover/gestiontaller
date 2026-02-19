@@ -18,6 +18,22 @@ export interface MaintenanceAction {
   responsable: string;
 }
 
+export interface TechnicalReport {
+  id: string;
+  ingreso_id: string;
+  equipo_id: string;
+  motor: string;
+  sistema_hidraulico: string;
+  sistema_electrico: string;
+  sistema_neumatico: string;
+  estructura: string;
+  cabina: string;
+  tren_rodante: string;
+  elementos_desgaste: string;
+  componentes_especificos: string;
+  observaciones: string;
+}
+
 export interface MaintenanceEntry {
   id: string;
   equipo_id: string;
@@ -25,8 +41,9 @@ export interface MaintenanceEntry {
   obra_asignada?: string;
   informe_fallas: string;
   observaciones?: string;
-  acciones_taller: MaintenanceAction[]; // Relación con acciones
-  fecha_salida?: string; // Nuevo campo
+  acciones_taller: MaintenanceAction[]; 
+  informe_taller?: TechnicalReport | TechnicalReport[] | null; // Acepta Array u Objeto
+  fecha_salida?: string; 
 }
 
 export type ViewType = 'tracking' | 'equipment' | 'dashboard';

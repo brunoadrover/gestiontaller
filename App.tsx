@@ -55,11 +55,10 @@ const App: React.FC = () => {
       const fullEquipmentList = await fetchAllFromTable('equipos');
       setEquipment(fullEquipmentList);
 
-      // Cargamos los ingresos (aquí cargamos los últimos 5000 por rendimiento, 
-      // pero podríamos usar la misma lógica si fuera necesario)
+      // Cargamos los ingresos incluyendo informe_taller
       const { data: entData, error: entError } = await supabase
         .from('ingresos_taller')
-        .select('*, acciones_taller(*)')
+        .select('*, acciones_taller(*), informe_taller(*)')
         .order('fecha_ingreso', { ascending: false })
         .limit(5000);
         
