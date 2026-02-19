@@ -26,6 +26,7 @@ export interface MaintenanceEntry {
   informe_fallas: string;
   observaciones?: string;
   acciones_taller: MaintenanceAction[]; // Relación con acciones
+  fecha_salida?: string; // Nuevo campo
 }
 
 export type ViewType = 'tracking' | 'equipment' | 'dashboard';

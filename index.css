@@ -7,6 +7,13 @@
   body {
     @apply antialiased text-slate-900 bg-slate-50;
   }
+
+  /* Aumentar oscuridad y visibilidad del icono de calendario */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(0); /* Asegura que sea negro */
+    opacity: 1; /* Máxima opacidad */
+  }
 }
 
 @layer utilities {

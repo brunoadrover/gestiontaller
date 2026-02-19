@@ -25,6 +25,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [newEntry, setNewEntry] = useState({
     interno: '',
     fecha_ingreso: today,
+    fecha_salida: '', // Nuevo campo estado inicial
     obra_asignada: '',
     informe_fallas: '',
     firstAction: '',
@@ -50,7 +51,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     obra_asignada: string;
     informe_fallas: string;
     fecha_ingreso: string;
-  }>({ obra_asignada: '', informe_fallas: '', fecha_ingreso: '' });
+    fecha_salida: string; // Nuevo campo en edición
+  }>({ obra_asignada: '', informe_fallas: '', fecha_ingreso: '', fecha_salida: '' });
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [tempComment, setTempComment] = useState('');
@@ -189,7 +191,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       doc.setTextColor(30, 41, 59);
       
       const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
-      const headerText = `INTERNO: ${entry.equipo_id} | TIPO: ${eq?.tipo || 'N/A'} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | HS: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
+      const estSalida = entry.fecha_salida ? formatDateDisplay(entry.fecha_salida) : 'N/A';
+      
+      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | SALIDA ESTIMADA: ${estSalida}`;
       doc.text(headerText, 18, startY + 7);
       
       doc.setFont('helvetica', 'normal');
@@ -217,8 +221,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       const actions = entry.acciones_taller || [];
       const tableData: any[] = actions.map((action, idx) => {
         const currentActionDate = action.fecha_accion;
-        // Lógica corregida para el PDF: La duración es (Fecha Siguiente Evento - Fecha Este Evento)
-        // Si no hay siguiente evento, es (Hoy - Este Evento) salvo que sea Operativo (fin de ciclo).
         const nextAction = actions[idx + 1];
         let endDateCalc = todayStr;
         if (nextAction) {
@@ -228,7 +230,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         }
 
         const durationStage = getDiffDays(currentActionDate, endDateCalc);
-        // La estadía acumulada sigue siendo desde el ingreso hasta el cierre de esta etapa
         const accumulated = getDiffDays(entry.fecha_ingreso, endDateCalc);
 
         return [
@@ -322,6 +323,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         .insert([{
           equipo_id: matchedEquipment.id,
           fecha_ingreso: newEntry.fecha_ingreso,
+          fecha_salida: newEntry.fecha_salida || null, // Guardar fecha salida
           obra_asignada: newEntry.obra_asignada,
           informe_fallas: newEntry.informe_fallas,
           observaciones: newEntry.observaciones
@@ -343,7 +345,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
       await refreshData();
       setNewEntry({
-        interno: '', fecha_ingreso: today, obra_asignada: '', informe_fallas: '',
+        interno: '', fecha_ingreso: today, fecha_salida: '', obra_asignada: '', informe_fallas: '',
         firstAction: '', responsable: '', actionDate: today, observaciones: ''
       });
       setShowAddForm(false);
@@ -377,7 +379,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const handleSaveEditEntry = async (entryId: string) => {
     setIsProcessing(true);
     try {
-      const { error } = await supabase.from('ingresos_taller').update(editEntryData).eq('id', entryId);
+      const payload = {
+        obra_asignada: editEntryData.obra_asignada,
+        informe_fallas: editEntryData.informe_fallas,
+        fecha_ingreso: editEntryData.fecha_ingreso,
+        fecha_salida: editEntryData.fecha_salida || null // Actualizar fecha salida
+      };
+      
+      const { error } = await supabase.from('ingresos_taller').update(payload).eq('id', entryId);
       if (error) throw error;
       await refreshData();
       setEditingEntryId(null);
@@ -492,9 +501,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Obra</label>
               <input type="text" value={newEntry.obra_asignada} onChange={e => setNewEntry({...newEntry, obra_asignada: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm outline-none text-slate-950" placeholder="Obra" />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-1">
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Fecha Ingreso</label>
               <input type="date" value={newEntry.fecha_ingreso} onChange={e => setNewEntry({...newEntry, fecha_ingreso: e.target.value, actionDate: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold text-slate-950" />
+            </div>
+            <div className="md:col-span-1">
+              <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Salida Estimada</label>
+              <input type="date" value={newEntry.fecha_salida} onChange={e => setNewEntry({...newEntry, fecha_salida: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold text-slate-950" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Falla / Síntoma</label>
@@ -504,7 +517,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Primer Paso Taller</label>
               <input type="text" value={newEntry.firstAction} onChange={e => setNewEntry({...newEntry, firstAction: e.target.value})} className="w-full bg-white border border-green-600 rounded p-2 text-sm font-black text-slate-950" placeholder="Ej: Diagnóstico" />
             </div>
-            <div>
+            <div className="md:col-span-1">
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Mecánico</label>
               <input type="text" value={newEntry.responsable} onChange={e => setNewEntry({...newEntry, responsable: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold text-slate-950" placeholder="Nombre" />
             </div>
@@ -523,6 +536,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <th className="px-4 py-3 border-r border-slate-200">Equipo</th>
               <th className="px-4 py-3 border-r border-slate-200">Obra</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Ingreso</th>
+              <th className="px-4 py-3 border-r border-slate-200 text-center">Salida Estimada</th>
               <th className="px-4 py-3 border-r border-slate-200">Falla</th>
               <th className="px-4 py-3 border-r border-slate-200">AVANCE</th>
               <th className="px-4 py-3 border-r border-slate-200 text-center">Mecánico</th>
@@ -534,7 +548,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           <tbody className="text-sm">
             {filteredEntries.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-20 text-center text-slate-400 italic">No se encontraron registros de taller.</td>
+                <td colSpan={11} className="px-4 py-20 text-center text-slate-400 italic">No se encontraron registros de taller.</td>
               </tr>
             ) : (
               filteredEntries.map(entry => {
@@ -546,9 +560,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                 const isEditingFirst = editingActionId === firstAction?.id;
                 const isEditingEntry = editingEntryId === entry.id;
                 
-                // LÓGICA DE DURACIÓN (Corregida)
-                // Se calcula la duración de esta acción hasta la siguiente.
-                // Si no hay siguiente, se calcula hasta HOY (si no es operativo) o se cierra (si es operativo).
                 const nextActionForFirst = actions[1];
                 const firstActionEndDate = nextActionForFirst 
                   ? nextActionForFirst.fecha_accion 
@@ -585,6 +596,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
                         {isEditingEntry ? <input type="date" value={editEntryData.fecha_ingreso} onChange={e => setEditEntryData({...editEntryData, fecha_ingreso: e.target.value})} className={editInputClass} /> : formatDateDisplay(entry.fecha_ingreso)}
+                      </td>
+                      <td className="px-4 py-4 border-r border-slate-200 text-center font-mono font-bold text-slate-500">
+                        {isEditingEntry ? <input type="date" value={editEntryData.fecha_salida} onChange={e => setEditEntryData({...editEntryData, fecha_salida: e.target.value})} className={editInputClass} /> : formatDateDisplay(entry.fecha_salida || '')}
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200 italic text-slate-600">
                         {isEditingEntry ? <input type="text" value={editEntryData.informe_fallas} onChange={e => setEditEntryData({...editEntryData, informe_fallas: e.target.value})} className={editInputClass} /> : entry.informe_fallas}
@@ -623,7 +637,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               <button onClick={() => { 
                                 setEditingEntryId(entry.id); 
                                 setEditingActionId(firstAction?.id || null); 
-                                setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas, fecha_ingreso: entry.fecha_ingreso }); 
+                                setEditEntryData({ 
+                                  obra_asignada: entry.obra_asignada || '', 
+                                  informe_fallas: entry.informe_fallas, 
+                                  fecha_ingreso: entry.fecha_ingreso,
+                                  fecha_salida: entry.fecha_salida || '' 
+                                }); 
                                 if(firstAction) setEditActionData({ descripcion: firstAction.descripcion, responsable: firstAction.responsable, fecha_accion: firstAction.fecha_accion }); 
                               }} className="text-slate-700 hover:text-green-700 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-6 h-6" /></button>
                               <button onClick={() => setDeleteConfirmId(entry.id)} className="text-slate-200 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
@@ -635,10 +654,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
                     {actions.slice(1).map((action, idx) => {
                       const isEditing = editingActionId === action.id;
-                      // LÓGICA DE DURACIÓN (Filas siguientes)
-                      // idx es el índice del slice (0, 1, 2...). 
-                      // action es actions[1], actions[2]...
-                      // Necesitamos el siguiente del original: actions[idx + 2]
                       const nextAction = actions[idx + 2];
                       const endDate = nextAction 
                         ? nextAction.fecha_accion 
@@ -648,7 +663,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
                       return (
                         <tr key={action.id} className="bg-white border-b border-slate-50 hover:bg-slate-50 group/row transition-colors">
-                          <td colSpan={5} className="border-r border-slate-100"></td>
+                          <td colSpan={6} className="border-r border-slate-100"></td>
                           <td className="px-4 py-2 border-r border-slate-200">
                             {isEditing ? <input type="text" value={editActionData.descripcion} onChange={e => setEditActionData({...editActionData, descripcion: e.target.value})} className={editInputClass} /> : <span className="text-slate-700 font-medium">{action.descripcion}</span>}
                           </td>
@@ -667,7 +682,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                     })}
 
                     <tr className="bg-white">
-                      <td colSpan={5} className="border-r border-slate-100"></td>
+                      <td colSpan={6} className="border-r border-slate-100"></td>
                       <td colSpan={5} className="px-4 py-3 border-b border-slate-200">
                         <div className="flex flex-col gap-3">
                           <div className="flex items-start gap-2 group/comment">
