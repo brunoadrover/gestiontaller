@@ -1,10 +1,13 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 interface TrackingViewProps {
   entries: MaintenanceEntry[];
@@ -18,6 +21,10 @@ const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase 
 const ReportField = ({ label, value, onChange, placeholder, className = reportTextClass }: { label: string, value: string, onChange: (val: string) => void, placeholder: string, className?: string }) => {
   const completedRegex = /\[COMPLETADO - .*?\]$/;
   const isCompleted = completedRegex.test(value);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const toggleCompleted = () => {
     if (isCompleted) {
@@ -30,20 +37,132 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
     }
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await transcribeAudio(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("No se pudo acceder al micrófono. Verifique los permisos.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const transcribeAudio = async (blob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "audio/webm",
+                      data: base64Data
+                    }
+                  },
+                  {
+                    text: "Analiza el archivo de audio. Transcribe el contenido de forma literal, pero corrigiendo errores gramaticales evidentes si el usuario titubea. IMPORTANTE: No añadas comentarios, ni introducciones, ni 'Aquí tienes la transcripción'. Salida: Devuelve ÚNICAMENTE el texto limpio."
+                  }
+                ]
+              }
+            ]
+          });
+
+          const text = response.text;
+          if (text) {
+            const cleanText = text.trim();
+            onChange((value ? value + " " : "") + cleanText);
+          }
+        } catch (genAiErr) {
+          console.error("Gemini Error:", genAiErr);
+          alert("Error en la transcripción con IA.");
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+    } catch (err) {
+      console.error("Error reading audio file:", err);
+      alert("Error al procesar el archivo de audio.");
+      setIsTranscribing(false);
+    }
+  };
+
   return (
     <div className="relative group">
       <div className="flex justify-between items-center mb-1">
         <label className={reportLabelClass}>{label}</label>
-        <div className="relative group/tooltip">
-          <button
-            onClick={toggleCompleted}
-            className={`p-0.5 rounded-full transition-all ${isCompleted ? 'text-red-600 bg-red-50' : 'text-slate-300 hover:text-red-500 hover:bg-slate-100'}`}
-          >
-            <CheckCircle className={`w-4 h-4 ${isCompleted ? 'fill-current' : ''}`} />
-          </button>
-          <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block w-48 bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-10 text-center">
-            Marca este ítem como revisado y finalizado agregando una firma de fecha.
-            <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
+        <div className="flex items-center gap-2">
+          {/* Voice Transcription Button */}
+          <div className="relative group/voice">
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={isTranscribing}
+              className={`p-1 rounded-full transition-all flex items-center justify-center ${
+                isRecording 
+                  ? 'bg-red-500 text-white animate-pulse' 
+                  : isTranscribing 
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                    : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
+              }`}
+            >
+              {isTranscribing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="w-3.5 h-3.5" />
+              ) : (
+                <Mic className="w-3.5 h-3.5" />
+              )}
+            </button>
+            <div className="absolute bottom-full right-0 mb-2 hidden group-hover/voice:block w-40 bg-slate-800 text-white text-[9px] p-2 rounded shadow-lg z-10 text-center">
+              {isRecording ? "Detener y transcribir" : "Dictar por voz (IA)"}
+              <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
+            </div>
+          </div>
+
+          {/* Completion Toggle */}
+          <div className="relative group/tooltip">
+            <button
+              onClick={toggleCompleted}
+              className={`p-0.5 rounded-full transition-all ${isCompleted ? 'text-red-600 bg-red-50' : 'text-slate-300 hover:text-red-500 hover:bg-slate-100'}`}
+            >
+              <CheckCircle className={`w-4 h-4 ${isCompleted ? 'fill-current' : ''}`} />
+            </button>
+            <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block w-48 bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-10 text-center">
+              Marca este ítem como revisado y finalizado agregando una firma de fecha.
+              <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -51,12 +170,20 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
         <textarea
           value={value}
           onChange={e => onChange(e.target.value)}
-          className={`${className} ${isCompleted ? 'border-red-500 bg-red-50/10' : ''}`}
-          placeholder={placeholder}
+          className={`${className} ${isCompleted ? 'border-red-500 bg-red-50/10' : ''} ${isRecording ? 'ring-2 ring-red-500 border-red-500' : ''}`}
+          placeholder={isRecording ? "Escuchando..." : placeholder}
         />
         {isCompleted && (
           <div className="absolute bottom-2 right-2 text-[9px] font-black text-red-600 bg-white/80 px-1.5 py-0.5 rounded border border-red-200 pointer-events-none uppercase tracking-wider shadow-sm backdrop-blur-sm">
             Completado
+          </div>
+        )}
+        {isTranscribing && (
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded">
+            <div className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Transcribiendo...
+            </div>
           </div>
         )}
       </div>
