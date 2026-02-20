@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -11,6 +11,58 @@ interface TrackingViewProps {
   refreshData: () => Promise<void>;
   equipment: Equipment[];
 }
+
+const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
+const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase tracking-wide mb-1";
+
+const ReportField = ({ label, value, onChange, placeholder, className = reportTextClass }: { label: string, value: string, onChange: (val: string) => void, placeholder: string, className?: string }) => {
+  const completedRegex = /\[COMPLETADO - .*?\]$/;
+  const isCompleted = completedRegex.test(value);
+
+  const toggleCompleted = () => {
+    if (isCompleted) {
+      onChange(value.replace(completedRegex, '').trim());
+    } else {
+      const dateStr = new Date().toLocaleDateString('es-AR');
+      const suffix = ` [COMPLETADO - ${dateStr}]`;
+      const newValue = value.trim() + suffix;
+      onChange(newValue);
+    }
+  };
+
+  return (
+    <div className="relative group">
+      <div className="flex justify-between items-center mb-1">
+        <label className={reportLabelClass}>{label}</label>
+        <div className="relative group/tooltip">
+          <button
+            onClick={toggleCompleted}
+            className={`p-0.5 rounded-full transition-all ${isCompleted ? 'text-red-600 bg-red-50' : 'text-slate-300 hover:text-red-500 hover:bg-slate-100'}`}
+          >
+            <CheckCircle className={`w-4 h-4 ${isCompleted ? 'fill-current' : ''}`} />
+          </button>
+          <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block w-48 bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-10 text-center">
+            Marca este ítem como revisado y finalizado agregando una firma de fecha.
+            <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
+          </div>
+        </div>
+      </div>
+      <div className="relative">
+        <textarea
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className={`${className} ${isCompleted ? 'border-red-500 bg-red-50/10' : ''}`}
+          placeholder={placeholder}
+        />
+        {isCompleted && (
+          <div className="absolute bottom-2 right-2 text-[9px] font-black text-red-600 bg-white/80 px-1.5 py-0.5 rounded border border-red-200 pointer-events-none uppercase tracking-wider shadow-sm backdrop-blur-sm">
+            Completado
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -646,8 +698,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const editInputClass = "w-full text-xs p-1.5 border-2 border-slate-400 rounded outline-none font-bold bg-white text-slate-950 shadow-inner";
-  const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
-  const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase tracking-wide mb-1";
 
   return (
     <div className="space-y-6">
@@ -986,46 +1036,24 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             
             <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div>
-                  <label className={reportLabelClass}>Motor</label>
-                  <textarea value={reportData.motor} onChange={e => setReportData({...reportData, motor: e.target.value})} className={reportTextClass} placeholder="Estado del motor, fugas, ruidos..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Sistema Hidráulico</label>
-                  <textarea value={reportData.sistema_hidraulico} onChange={e => setReportData({...reportData, sistema_hidraulico: e.target.value})} className={reportTextClass} placeholder="Cilindros, mangueras, bombas..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Sistema Eléctrico</label>
-                  <textarea value={reportData.sistema_electrico} onChange={e => setReportData({...reportData, sistema_electrico: e.target.value})} className={reportTextClass} placeholder="Baterías, arranque, luces..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Sistema Neumático</label>
-                  <textarea value={reportData.sistema_neumatico} onChange={e => setReportData({...reportData, sistema_neumatico: e.target.value})} className={reportTextClass} placeholder="Compresor, válvulas, fugas aire..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Estructura / Chasis</label>
-                  <textarea value={reportData.estructura} onChange={e => setReportData({...reportData, estructura: e.target.value})} className={reportTextClass} placeholder="Fisuras, soldaduras, deformaciones..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Cabina / Operador</label>
-                  <textarea value={reportData.cabina} onChange={e => setReportData({...reportData, cabina: e.target.value})} className={reportTextClass} placeholder="Instrumentos, asiento, vidrios..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Tren Rodante / Neumáticos</label>
-                  <textarea value={reportData.tren_rodante} onChange={e => setReportData({...reportData, tren_rodante: e.target.value})} className={reportTextClass} placeholder="Desgaste orugas, estado cubiertas..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Elementos de Desgaste</label>
-                  <textarea value={reportData.elementos_desgaste} onChange={e => setReportData({...reportData, elementos_desgaste: e.target.value})} className={reportTextClass} placeholder="Cuchillas, dientes, pernos..." />
-                </div>
-                <div>
-                  <label className={reportLabelClass}>Componentes Específicos</label>
-                  <textarea value={reportData.componentes_especificos} onChange={e => setReportData({...reportData, componentes_especificos: e.target.value})} className={reportTextClass} placeholder="Otros sistemas especiales..." />
-                </div>
+                <ReportField label="Motor" value={reportData.motor || ''} onChange={(val: string) => setReportData({...reportData, motor: val})} placeholder="Estado del motor, fugas, ruidos..." />
+                <ReportField label="Sistema Hidráulico" value={reportData.sistema_hidraulico || ''} onChange={(val: string) => setReportData({...reportData, sistema_hidraulico: val})} placeholder="Cilindros, mangueras, bombas..." />
+                <ReportField label="Sistema Eléctrico" value={reportData.sistema_electrico || ''} onChange={(val: string) => setReportData({...reportData, sistema_electrico: val})} placeholder="Baterías, arranque, luces..." />
+                <ReportField label="Sistema Neumático" value={reportData.sistema_neumatico || ''} onChange={(val: string) => setReportData({...reportData, sistema_neumatico: val})} placeholder="Compresor, válvulas, fugas aire..." />
+                <ReportField label="Estructura / Chasis" value={reportData.estructura || ''} onChange={(val: string) => setReportData({...reportData, estructura: val})} placeholder="Fisuras, soldaduras, deformaciones..." />
+                <ReportField label="Cabina / Operador" value={reportData.cabina || ''} onChange={(val: string) => setReportData({...reportData, cabina: val})} placeholder="Instrumentos, asiento, vidrios..." />
+                <ReportField label="Tren Rodante / Neumáticos" value={reportData.tren_rodante || ''} onChange={(val: string) => setReportData({...reportData, tren_rodante: val})} placeholder="Desgaste orugas, estado cubiertas..." />
+                <ReportField label="Elementos de Desgaste" value={reportData.elementos_desgaste || ''} onChange={(val: string) => setReportData({...reportData, elementos_desgaste: val})} placeholder="Cuchillas, dientes, pernos..." />
+                <ReportField label="Componentes Específicos" value={reportData.componentes_especificos || ''} onChange={(val: string) => setReportData({...reportData, componentes_especificos: val})} placeholder="Otros sistemas especiales..." />
               </div>
               <div className="mt-6">
-                <label className={reportLabelClass}>Observaciones Generales</label>
-                <textarea value={reportData.observaciones} onChange={e => setReportData({...reportData, observaciones: e.target.value})} className="w-full bg-white border-2 border-slate-300 rounded p-4 text-sm text-slate-900 h-32 outline-none focus:border-green-500 font-medium resize-none" placeholder="Conclusiones generales del estado del equipo..." />
+                <ReportField 
+                  label="Observaciones Generales" 
+                  value={reportData.observaciones || ''} 
+                  onChange={(val: string) => setReportData({...reportData, observaciones: val})} 
+                  placeholder="Conclusiones generales del estado del equipo..." 
+                  className="w-full bg-white border-2 border-slate-300 rounded p-4 text-sm text-slate-900 h-32 outline-none focus:border-green-500 font-medium resize-none"
+                />
               </div>
             </div>
 
