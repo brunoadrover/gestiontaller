@@ -46,4 +46,4 @@ export interface MaintenanceEntry {
   fecha_salida?: string; 
 }
 
-export type ViewType = 'tracking' | 'equipment' | 'dashboard';
+export type ViewType = 'tracking' | 'equipment' | 'dashboard' | 'history';

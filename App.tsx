@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ClipboardList, Database, LayoutDashboard, LogOut, AlertTriangle } from 'lucide-react';
 import TrackingView from './components/TrackingView';
+import HistoryView from './components/HistoryView';
 import EquipmentView from './components/EquipmentView';
 import DashboardView from './components/DashboardView';
 import Login from './components/Login';
@@ -101,6 +102,8 @@ const App: React.FC = () => {
     switch (activeView) {
       case 'tracking':
         return <TrackingView entries={entries} refreshData={fetchData} equipment={equipment} />;
+      case 'history':
+        return <HistoryView entries={entries} refreshData={fetchData} equipment={equipment} />;
       case 'equipment':
         return <EquipmentView equipment={equipment} refreshData={fetchData} />;
       case 'dashboard':
@@ -133,6 +136,13 @@ const App: React.FC = () => {
               >
                 <ClipboardList className="w-4 h-4" />
                 <span className="hidden sm:inline">Seguimiento</span>
+              </button>
+              <button 
+                onClick={() => setActiveView('history')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all text-xs font-bold uppercase tracking-wider ${activeView === 'history' ? 'bg-green-700 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+              >
+                <ClipboardList className="w-4 h-4" />
+                <span className="hidden sm:inline">Historial/Operativos</span>
               </button>
               <button 
                 onClick={() => setActiveView('equipment')}
