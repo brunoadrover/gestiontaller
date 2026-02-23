@@ -88,7 +88,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Panel de Control (Dashboard)</h2>
-          <p className="text-slate-500">Métricas conectadas a la base de datos de Supabase.</p>
         </div>
         <div className="px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase rounded-full shadow-sm animate-pulse">DB Live</div>
       </div>

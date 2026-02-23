@@ -805,7 +805,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-white/20">
             <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-green-600 rounded-2xl flex items-center justify-center font-black text-lg shadow-lg shadow-green-900/40">
+                <div className="px-3 h-12 min-w-12 bg-green-600 rounded-2xl flex items-center justify-center font-black text-base shadow-lg shadow-green-900/40">
                   {currentReportEntry.equipo_id}
                 </div>
                 <div>
@@ -851,7 +851,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col border border-white/20">
             <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-lg shadow-lg shadow-indigo-900/40">
+                <div className="px-3 h-12 min-w-12 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-base shadow-lg shadow-indigo-900/40">
                   {selectedEntryForActions.equipo_id}
                 </div>
                 <div>
