@@ -333,7 +333,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const filteredEntries = useMemo(() => {
-    let result = entries || [];
+    let result = (entries || []).filter(entry => !getWorkshopStatus(entry).isOperative);
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -874,7 +874,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <option value="repair">EN REPARACIÓN</option>
               <option value="parts">ESPERANDO REPUESTOS</option>
               <option value="testing">EN PRUEBA</option>
-              <option value="operative">OPERATIVO</option>
             </select>
           </div>
 
