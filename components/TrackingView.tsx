@@ -344,7 +344,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           entry.informe_fallas?.toLowerCase().includes(term) ||
           (entry.obra_asignada || '').toLowerCase().includes(term) ||
           eq?.tipo?.toLowerCase().includes(term) ||
-          eq?.marca?.toLowerCase().includes(term)
+          eq?.marca?.toLowerCase().includes(term) ||
+          (entry.acciones_taller || []).some(action => 
+            action.descripcion?.toLowerCase().includes(term) ||
+            action.responsable?.toLowerCase().includes(term)
+          )
         );
       });
     }
