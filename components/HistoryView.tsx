@@ -283,6 +283,51 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     return { isOperative, isWaitingParts, isTesting, isInRepair, endDate: endDateStr, totalDays };
   };
 
+  const getStayBreakdown = (entry: MaintenanceEntry) => {
+    const actions = entry.acciones_taller || [];
+    let repairDays = 0;
+    let testingDays = 0;
+    let partsDays = 0;
+
+    if (actions.length === 0) return { repairDays, testingDays, partsDays };
+
+    const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion));
+    
+    if (sortedActions[0].fecha_accion > entry.fecha_ingreso) {
+      repairDays += getDiffDays(entry.fecha_ingreso, sortedActions[0].fecha_accion);
+    }
+
+    for (let i = 0; i < sortedActions.length; i++) {
+      const currentAction = sortedActions[i];
+      const nextAction = sortedActions[i + 1];
+      
+      const startDate = currentAction.fecha_accion;
+      let endDate = "";
+      
+      if (nextAction) {
+        endDate = nextAction.fecha_accion;
+      } else {
+        const { isOperative, endDate: statusEndDate } = getWorkshopStatus(entry);
+        endDate = isOperative ? (statusEndDate || today) : today;
+      }
+
+      const days = getDiffDays(startDate, endDate);
+      const desc = currentAction.descripcion.toLowerCase();
+      
+      if (repuestoKeywords.some(kw => desc.includes(kw))) {
+        partsDays += days;
+      } else if (testingKeywords.some(kw => desc.includes(kw))) {
+        testingDays += days;
+      } else if (desc.includes('operativo') && !desc.includes('entrega')) {
+        // End of stay
+      } else {
+        repairDays += days;
+      }
+    }
+
+    return { repairDays, testingDays, partsDays };
+  };
+
   const getWorkshopType = (entry: MaintenanceEntry) => {
     const eq = equipment.find(e => e.id === entry.equipo_id);
     const id = entry.equipo_id.toUpperCase();
@@ -345,9 +390,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       let headerBg = [220, 252, 231]; 
 
       doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
-      doc.rect(14, startY, 269, 22, 'F');
+      doc.rect(14, startY, 269, 28, 'F');
       doc.setDrawColor(200, 200, 200);
-      doc.rect(14, startY, 269, 22, 'S');
+      doc.rect(14, startY, 269, 28, 'S');
       
       doc.setFontSize(7);
       doc.setFont('helvetica', 'bold');
@@ -362,12 +407,17 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días`, 18, startY + 13);
+
+      const breakdown = getStayBreakdown(entry);
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`DESGLOSE: Reparación: ${breakdown.repairDays}d | Prueba: ${breakdown.testingDays}d | Compras: ${breakdown.partsDays}d`, 18, startY + 18);
       
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(153, 27, 27); 
-      doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 18);
+      doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 23);
       
-      startY += 28;
+      startY += 38;
 
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'bold');
@@ -767,7 +817,30 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                       <div className="inline-flex flex-col items-center">
                         <span className="text-lg font-black text-slate-800 leading-none">{totalDays}</span>
                         <span className="text-[9px] text-slate-400 font-black uppercase tracking-tighter">Días Totales</span>
-                        <div className="mt-1 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded border border-red-100">
+                        
+                        <div className="mt-2 flex flex-col gap-1">
+                          {(() => {
+                            const b = getStayBreakdown(entry);
+                            return (
+                              <>
+                                <div className="flex items-center gap-1.5" title="Demora por Reparaciones">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Rep: {b.repairDays}d</span>
+                                </div>
+                                <div className="flex items-center gap-1.5" title="Demora por Prueba de Equipos">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Pru: {b.testingDays}d</span>
+                                </div>
+                                <div className="flex items-center gap-1.5" title="Demora por Compra de Repuestos">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Comp: {b.partsDays}d</span>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+
+                        <div className="mt-2 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded border border-red-100">
                           -{formatCurrencyAbbr(loss)}
                         </div>
                       </div>
