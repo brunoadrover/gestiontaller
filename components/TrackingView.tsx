@@ -380,6 +380,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.setTextColor(30, 41, 59);
     doc.text('Reporte de Historial de Taller - GEyT', 14, 20);
     
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
+    
     let startY = 35;
     let totalLossAll = 0;
     let totalStayDaysAll = 0;

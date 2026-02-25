@@ -380,6 +380,10 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.setTextColor(30, 41, 59);
     doc.text('Reporte de Equipos Operativos - GEyT', 14, 20);
     
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
+    
     let startY = 35;
 
     filteredEntries.forEach((entry, index) => {
