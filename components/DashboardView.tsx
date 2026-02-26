@@ -25,16 +25,20 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
     let inRepairCount = 0;
     let currentlyInWorkshop = 0;
 
+    const getDiffDays = (d1: string, d2: string) => {
+      const start = new Date(d1 + 'T00:00:00');
+      const end = new Date(d2 + 'T00:00:00');
+      return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    };
+    const todayStr = today.toISOString().split('T')[0];
+
     entries.forEach(entry => {
       const eq = equipment.find(e => e.id === entry.equipo_id);
-      const actions = entry.acciones_taller || [];
-      if (actions.length === 0) return;
-
-      const lastAction = actions[actions.length - 1];
-      const isCurrentlyOperative = lastAction.descripcion.toLowerCase().includes('operativo') && !lastAction.descripcion.toLowerCase().includes('entrega');
+      const estado = entry.estado || 'REPARACION';
+      const isCurrentlyOperative = estado === 'OPERATIVO';
       
-      const dateLimit = isCurrentlyOperative ? new Date(lastAction.fecha_accion + 'T00:00:00') : today;
-      const stayDays = Math.max(0, Math.floor((dateLimit.getTime() - new Date(entry.fecha_ingreso + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)));
+      const stayDays = getDiffDays(entry.fecha_ingreso, isCurrentlyOperative ? (entry.fecha_salida || todayStr) : todayStr);
+
       totalStayDaysAcrossAll += stayDays;
 
       if (eq) {
@@ -46,8 +50,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
         operativeCount++;
       } else {
         currentlyInWorkshop++;
-        const lastDesc = lastAction.descripcion.toLowerCase();
-        if (repuestoKeywords.some(kw => lastDesc.includes(kw))) {
+        if (estado === 'COMPRAS') {
           waitingPartsCount++;
         } else {
           inRepairCount++;
