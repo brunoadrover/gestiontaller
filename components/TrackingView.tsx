@@ -305,13 +305,96 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const isTesting = estado === 'PRUEBA';
     const isInRepair = estado === 'REPARACION';
 
+    // Calculate live days in current state
+    const actions = entry.acciones_taller || [];
+    // Sort actions by date to ensure we find the actual last status change
+    const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion) || a.id.localeCompare(b.id));
+    
+    const lastStatusAction = [...sortedActions].reverse().find(a => 
+      a.descripcion.startsWith('Cambio de estado a:') || 
+      a.descripcion.includes('Cambio de estado a:')
+    );
+    
+    const lastChangeDate = lastStatusAction ? lastStatusAction.fecha_accion : entry.fecha_ingreso;
+    const liveDays = isOperative ? 0 : getDiffDays(lastChangeDate, today);
+
+    const repairDays = Number(entry.estadia_reparacion || 0) + (isInRepair ? liveDays : 0);
+    const partsDays = Number(entry.estadia_compras || 0) + (isWaitingParts ? liveDays : 0);
+    const testingDays = Number(entry.estadia_prueba || 0) + (isTesting ? liveDays : 0);
+
+    // Total days should be the difference between entry and today/exit
     const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
     const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
     return { 
       isOperative, isWaitingParts, isTesting, isInRepair, 
-      endDate: endDateStr, totalDays
+      endDate: endDateStr, totalDays,
+      breakdown: { repairDays, partsDays, testingDays }
     };
+  };
+
+  const handleStatusChange = async (entry: MaintenanceEntry, newStatus: string, changeDate: string = today) => {
+    setIsProcessing(true);
+    try {
+      const currentStatus = entry.estado || 'REPARACION';
+      if (currentStatus === newStatus) return;
+
+      const actions = entry.acciones_taller || [];
+      const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion) || a.id.localeCompare(b.id));
+      
+      const lastStatusAction = [...sortedActions].reverse().find(a => 
+        a.descripcion.startsWith('Cambio de estado a:') || 
+        a.descripcion.includes('Cambio de estado a:')
+      );
+      
+      const lastChangeDate = lastStatusAction ? lastStatusAction.fecha_accion : entry.fecha_ingreso;
+      const daysDiff = getDiffDays(lastChangeDate, changeDate);
+
+      const updates: any = { estado: newStatus };
+      
+      if (currentStatus === 'REPARACION') {
+        updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysDiff;
+      } else if (currentStatus === 'COMPRAS') {
+        updates.estadia_compras = Number(entry.estadia_compras || 0) + daysDiff;
+      } else if (currentStatus === 'PRUEBA') {
+        updates.estadia_prueba = Number(entry.estadia_prueba || 0) + daysDiff;
+      }
+
+      if (newStatus === 'OPERATIVO') {
+        updates.fecha_salida = changeDate;
+      }
+
+      const { error: updateError } = await supabase
+        .from('ingresos_taller')
+        .update(updates)
+        .eq('id', entry.id);
+
+      if (updateError) throw updateError;
+
+      const statusLabels: Record<string, string> = {
+        'REPARACION': 'EN REPARACIÓN',
+        'COMPRAS': 'ESPERANDO REPUESTOS',
+        'PRUEBA': 'EN PRUEBA',
+        'OPERATIVO': 'OPERATIVO'
+      };
+
+      const { error: actionError } = await supabase
+        .from('acciones_taller')
+        .insert([{
+          ingreso_id: entry.id,
+          descripcion: `Cambio de estado a: ${statusLabels[newStatus]}`,
+          fecha_accion: changeDate,
+          responsable: 'Sistema'
+        }]);
+
+      if (actionError) throw actionError;
+
+      await refreshData();
+    } catch (e) {
+      alert("Error cambiando estado: " + (e as any).message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const getWorkshopType = (entry: MaintenanceEntry) => {
@@ -389,7 +472,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
     filteredEntries.forEach((entry, index) => {
       const eq = equipment.find(e => e.id === entry.equipo_id);
-      const { isOperative, isWaitingParts, isTesting, totalDays } = getWorkshopStatus(entry);
+      const { isOperative, isWaitingParts, isTesting, totalDays, breakdown } = getWorkshopStatus(entry);
       const loss = calculateLoss(totalDays, eq);
       totalLossAll += loss;
       totalStayDaysAll += totalDays;
@@ -417,7 +500,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
-      doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días`, 18, startY + 13);
+      const breakdownText = `Reparación: ${breakdown.repairDays}d | Repuestos: ${breakdown.partsDays}d | Prueba: ${breakdown.testingDays}d`;
+      doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 13);
       
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(153, 27, 27); 
@@ -567,49 +651,49 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.setDrawColor(203, 213, 225); // Slate 300
     doc.rect(14, startY, 182, 28, 'S');
 
-      doc.setFontSize(10);
-      doc.setTextColor(30, 41, 59);
-      doc.setFont('helvetica', 'bold');
-      doc.text('DATOS DEL EQUIPO', 18, startY + 6);
-      
-      const estSalida = currentReportEntry.fecha_salida ? formatDateDisplay(currentReportEntry.fecha_salida) : 'N/A';
-      
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      
-      // Fila 1
-      doc.text(`Interno:`, 18, startY + 14);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${currentReportEntry.equipo_id}`, 35, startY + 14);
-      
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Marca/Modelo:`, 70, startY + 14);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
-  
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Hs Arrastre:`, 140, startY + 14);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 160, startY + 14);
-  
-      // Fila 2
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Obra:`, 18, startY + 22);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${currentReportEntry.obra_asignada || 'Sin asignar'}`, 35, startY + 22);
-  
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Ingreso:`, 70, startY + 22);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
-  
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Salida Est.:`, 140, startY + 22);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${estSalida}`, 160, startY + 22);
-  
-      // --- Evaluación Técnica ---
-      startY += 38;
+    doc.setFontSize(10);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATOS DEL EQUIPO', 18, startY + 6);
+    
+    const estSalida = currentReportEntry.fecha_salida ? formatDateDisplay(currentReportEntry.fecha_salida) : 'N/A';
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    // Fila 1
+    doc.text(`Interno:`, 18, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${currentReportEntry.equipo_id}`, 35, startY + 14);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Marca/Modelo:`, 70, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Hs Arrastre:`, 140, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 160, startY + 14);
+
+    // Fila 2
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Obra:`, 18, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${currentReportEntry.obra_asignada || 'Sin asignar'}`, 35, startY + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Ingreso:`, 70, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Salida Est.:`, 140, startY + 22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${estSalida}`, 160, startY + 22);
+
+    // --- Evaluación Técnica ---
+    startY += 38;
     
     const techData = [
       ['Motor', reportData.motor || '-'],
@@ -713,12 +797,44 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     }
   };
 
-  const handleAddAction = async (entryId: string) => {
+  const handleAddAction = async (entry: MaintenanceEntry) => {
     if (!newActionText.trim()) return;
     setIsProcessing(true);
     try {
+      let newStatus = entry.estado || 'REPARACION';
+      // Improved keyword detection logic with better word boundaries
+      const isWordMatch = (keywords: string[]) => {
+        const textToSearch = ` ${newActionText.toLowerCase()} `.replace(/[\n\r\t]/g, ' ');
+        return keywords.some(keyword => {
+          const k = keyword.toLowerCase();
+          const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          // Match the keyword surrounded by non-alphanumeric characters (including spaces, punctuation, etc.)
+          const regex = new RegExp(`[^a-z0-9áéíóúñ]${escaped}[^a-z0-9áéíóúñ]`, 'i');
+          return regex.test(textToSearch);
+        });
+      };
+
+      const isReparacion = isWordMatch(['recibido', 'recibidos', 'entregados', 'entregado']);
+      const isRepuestos = isWordMatch(['repuesto', 'repuestos', 'terceros', 'ot', 'o.t', 'o.t.']);
+      const isPrueba = isWordMatch(['prueba', 'probar']);
+
+      if (isReparacion) {
+        newStatus = 'REPARACION';
+      } else if (isRepuestos) {
+        newStatus = 'COMPRAS';
+      } else if (isPrueba) {
+        newStatus = 'PRUEBA';
+      }
+
+      // If status changed, update the entry's status and estadia
+      // We check against the current state to avoid redundant updates
+      const currentEffectiveStatus = entry.estado || 'REPARACION';
+      if (newStatus !== currentEffectiveStatus) {
+        await handleStatusChange(entry, newStatus, newActionDate);
+      }
+
       const { error } = await supabase.from('acciones_taller').insert([{
-        ingreso_id: entryId,
+        ingreso_id: entry.id,
         descripcion: newActionText,
         fecha_accion: newActionDate,
         responsable: newActionResponsable || 'Taller'
@@ -972,7 +1088,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             ) : (
               filteredEntries.map(entry => {
                 const eq = equipment.find(e => e.id === entry.equipo_id);
-                const { isOperative, isWaitingParts, isTesting, isInRepair, totalDays } = getWorkshopStatus(entry);
+                const { isOperative, isWaitingParts, isTesting, isInRepair, totalDays, breakdown } = getWorkshopStatus(entry);
                 const loss = calculateLoss(totalDays, eq);
                 const actions = entry.acciones_taller || [];
                 const firstAction = actions[0];
@@ -1002,6 +1118,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                           </div>
                           {/* Desglose de estadía con acumulación en vivo */}
                           <div className="flex flex-col gap-0.5 mt-1">
+                            {breakdown.repairDays > 0 && <div className="text-[8px] font-bold text-blue-600 uppercase">Rep: {breakdown.repairDays}d</div>}
+                            {breakdown.partsDays > 0 && <div className="text-[8px] font-bold text-orange-600 uppercase">Comp: {breakdown.partsDays}d</div>}
+                            {breakdown.testingDays > 0 && <div className="text-[8px] font-bold text-violet-600 uppercase">Pru: {breakdown.testingDays}d</div>}
                           </div>
                           <div 
                             title="Impacto económico estimado por la inactividad del equipo" 
@@ -1137,7 +1256,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               <input autoFocus type="text" value={newActionText} onChange={e => setNewActionText(e.target.value)} placeholder="¿Qué se hizo?" className="flex-[3] text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
                               <input type="text" value={newActionResponsable} onChange={e => setNewActionResponsable(e.target.value)} placeholder="Mecánico" className="flex-1 text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
                               <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)} className="text-xs p-2 rounded border-2 border-slate-400 w-32 font-bold bg-white text-slate-950 outline-none" />
-                              <button onClick={() => handleAddAction(entry.id)} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 disabled:bg-slate-300 shadow-md"><Save className="w-4 h-4" /></button>
+                              <button onClick={() => handleAddAction(entry)} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 disabled:bg-slate-300 shadow-md"><Save className="w-4 h-4" /></button>
                               <button onClick={() => setSelectedEntryId(null)} className="text-slate-500 p-2 hover:bg-slate-200 rounded transition-colors"><X className="w-4 h-4" /></button>
                             </div>
                           ) : (
@@ -1145,6 +1264,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               <button onClick={() => setSelectedEntryId(entry.id)} className="flex items-center gap-1.5 text-[10px] font-black text-green-700 hover:bg-green-700 hover:text-white px-4 py-2 rounded-full border-2 border-green-200 transition-all uppercase tracking-widest w-fit shadow-sm">
                                 <Plus className="w-3 h-3" /> Añadir Avance
                               </button>
+                              
                             </div>
                           )}
                         </div>

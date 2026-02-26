@@ -271,12 +271,25 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     const isTesting = estado === 'PRUEBA';
     const isInRepair = estado === 'REPARACION';
 
+    const repairDays = Number(entry.estadia_reparacion || 0);
+    const partsDays = Number(entry.estadia_compras || 0);
+    const testingDays = Number(entry.estadia_prueba || 0);
+
     const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
     const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
     return { 
       isOperative, isWaitingParts, isTesting, isInRepair, 
-      endDate: endDateStr, totalDays
+      endDate: endDateStr, totalDays,
+      breakdown: { repairDays, partsDays, testingDays }
+    };
+  };
+
+  const getStayBreakdown = (entry: MaintenanceEntry) => {
+    return { 
+      repairDays: Number(entry.estadia_reparacion || 0), 
+      testingDays: Number(entry.estadia_prueba || 0), 
+      partsDays: Number(entry.estadia_compras || 0) 
     };
   };
 
@@ -364,11 +377,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       doc.setFontSize(7.5);
       doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días`, 18, startY + 13);
 
+      const breakdown = getStayBreakdown(entry);
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`DESGLOSE: Reparación: ${breakdown.repairDays}d | Prueba: ${breakdown.testingDays}d | Compras: ${breakdown.partsDays}d`, 18, startY + 18);
+      
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(153, 27, 27); 
-      doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 18);
+      doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 23);
       
-      startY += 33;
+      startY += 38;
 
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'bold');
@@ -776,6 +794,25 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                         <span className="text-[9px] text-slate-400 font-black uppercase tracking-tighter">Días Totales</span>
                         
                         <div className="mt-2 flex flex-col gap-1">
+                          {(() => {
+                            const b = getStayBreakdown(entry);
+                            return (
+                              <>
+                                <div className="flex items-center gap-1.5" title="Demora por Reparaciones">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Rep: {b.repairDays}d</span>
+                                </div>
+                                <div className="flex items-center gap-1.5" title="Demora por Prueba de Equipos">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Pru: {b.testingDays}d</span>
+                                </div>
+                                <div className="flex items-center gap-1.5" title="Demora por Compra de Repuestos">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                                  <span className="text-[8px] font-bold text-slate-500 uppercase">Comp: {b.partsDays}d</span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
 
                         <div className="mt-2 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded border border-red-100">
