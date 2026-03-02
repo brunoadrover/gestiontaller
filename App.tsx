@@ -64,7 +64,13 @@ const App: React.FC = () => {
         .limit(5000);
         
       if (entError) throw entError;
-      setEntries(entData || []);
+      
+      const normalizedEntries = (entData || []).map(entry => ({
+        ...entry,
+        estado: entry.estado || 'REPARACION'
+      }));
+      
+      setEntries(normalizedEntries);
 
     } catch (err: any) {
       console.error("Error crítico de Supabase:", err);

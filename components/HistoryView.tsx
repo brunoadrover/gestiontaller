@@ -265,67 +265,32 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   };
 
   const getWorkshopStatus = (entry: MaintenanceEntry) => {
-    const actions = entry.acciones_taller || [];
-    if (actions.length === 0) return { isOperative: false, isWaitingParts: false, isTesting: false, isInRepair: true, totalDays: 0 };
+    const estado = entry.estado || 'REPARACION';
+    const isOperative = estado === 'OPERATIVO';
+    const isWaitingParts = estado === 'COMPRAS';
+    const isTesting = estado === 'PRUEBA';
+    const isInRepair = estado === 'REPARACION';
 
-    const lastAction = actions[actions.length - 1];
-    const desc = lastAction?.descripcion?.toLowerCase() || '';
-    
-    const isForcedRepair = desc.includes('entrega');
-    const isOperative = !isForcedRepair && desc.includes('operativo');
-    const isTesting = !isOperative && !isForcedRepair && testingKeywords.some(kw => desc.includes(kw));
-    const isWaitingParts = !isOperative && !isTesting && !isForcedRepair && repuestoKeywords.some(kw => desc.includes(kw));
-    const isInRepair = !isOperative && !isWaitingParts && !isTesting;
+    const repairDays = Number(entry.estadia_reparacion || 0);
+    const partsDays = Number(entry.estadia_compras || 0);
+    const testingDays = Number(entry.estadia_prueba || 0);
 
-    const endDateStr = isOperative ? lastAction.fecha_accion : today;
+    const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
     const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
-    return { isOperative, isWaitingParts, isTesting, isInRepair, endDate: endDateStr, totalDays };
+    return { 
+      isOperative, isWaitingParts, isTesting, isInRepair, 
+      endDate: endDateStr, totalDays,
+      breakdown: { repairDays, partsDays, testingDays }
+    };
   };
 
   const getStayBreakdown = (entry: MaintenanceEntry) => {
-    const actions = entry.acciones_taller || [];
-    let repairDays = 0;
-    let testingDays = 0;
-    let partsDays = 0;
-
-    if (actions.length === 0) return { repairDays, testingDays, partsDays };
-
-    const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion));
-    
-    if (sortedActions[0].fecha_accion > entry.fecha_ingreso) {
-      repairDays += getDiffDays(entry.fecha_ingreso, sortedActions[0].fecha_accion);
-    }
-
-    for (let i = 0; i < sortedActions.length; i++) {
-      const currentAction = sortedActions[i];
-      const nextAction = sortedActions[i + 1];
-      
-      const startDate = currentAction.fecha_accion;
-      let endDate = "";
-      
-      if (nextAction) {
-        endDate = nextAction.fecha_accion;
-      } else {
-        const { isOperative, endDate: statusEndDate } = getWorkshopStatus(entry);
-        endDate = isOperative ? (statusEndDate || today) : today;
-      }
-
-      const days = getDiffDays(startDate, endDate);
-      const desc = currentAction.descripcion.toLowerCase();
-      
-      if (repuestoKeywords.some(kw => desc.includes(kw))) {
-        partsDays += days;
-      } else if (testingKeywords.some(kw => desc.includes(kw))) {
-        testingDays += days;
-      } else if (desc.includes('operativo') && !desc.includes('entrega')) {
-        // End of stay
-      } else {
-        repairDays += days;
-      }
-    }
-
-    return { repairDays, testingDays, partsDays };
+    return { 
+      repairDays: Number(entry.estadia_reparacion || 0), 
+      testingDays: Number(entry.estadia_prueba || 0), 
+      partsDays: Number(entry.estadia_compras || 0) 
+    };
   };
 
   const getWorkshopType = (entry: MaintenanceEntry) => {
@@ -378,7 +343,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(18);
     doc.setTextColor(30, 41, 59);
-    doc.text('Reporte de Equipos Operativos - GEyT', 14, 20);
+    doc.text('Informe de Situación Actual de Taller - GEyT', 14, 20);
     
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
@@ -426,7 +391,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(30, 41, 59);
-      doc.text('INFORME DE FALLAS:', 14, startY);
+      doc.text('MOTIVO DE INGRESO AL TALLER:', 14, startY);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(71, 85, 105);
       const prelimText = entry.informe_fallas || 'Sin información registrada.';
@@ -490,6 +455,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     });
 
     const fileName = `Operativos_${new Date().toLocaleDateString('es-AR').replace(/\//g, '-')}`;
+    
+    // Add page numbering
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Página ${i} de ${pageCount}`, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+    }
+
     doc.save(`${fileName}.pdf`);
   };
 
@@ -518,14 +493,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     let startY = 35;
     
     doc.setFillColor(241, 245, 249); 
-    doc.rect(14, startY, 182, 35, 'F');
+    doc.rect(14, startY, 182, 28, 'F');
     doc.setDrawColor(203, 213, 225); 
-    doc.rect(14, startY, 182, 35, 'S');
+    doc.rect(14, startY, 182, 28, 'S');
 
     doc.setFontSize(10);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.text('DATOS DEL EQUIPO E INGRESO', 18, startY + 6);
+    doc.text('DATOS DEL EQUIPO', 18, startY + 6);
     
     const estSalida = currentReportEntry.fecha_salida ? formatDateDisplay(currentReportEntry.fecha_salida) : 'N/A';
     
@@ -561,11 +536,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.setFont('helvetica', 'bold');
     doc.text(`${estSalida}`, 160, startY + 22);
 
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Motivo Ingreso:`, 18, startY + 30);
-    doc.text(currentReportEntry.informe_fallas || '-', 45, startY + 30);
-
-    startY += 45;
+    startY += 38;
     
     const techData = [
       ['Motor', reportData.motor || '-'],

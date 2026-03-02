@@ -44,6 +44,10 @@ export interface MaintenanceEntry {
   acciones_taller: MaintenanceAction[]; 
   informe_taller?: TechnicalReport | TechnicalReport[] | null; // Acepta Array u Objeto
   fecha_salida?: string; 
+  estado?: string;
+  estadia_reparacion?: number;
+  estadia_compras?: number;
+  estadia_prueba?: number;
 }
 
 export type ViewType = 'tracking' | 'equipment' | 'dashboard' | 'history';
