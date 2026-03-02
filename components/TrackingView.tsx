@@ -298,6 +298,59 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     return `USD ${Math.round(value || 0).toLocaleString('de-DE')}`;
   };
 
+  const syncDailyCounters = async () => {
+    const activeEntries = entries.filter(e => e.estado !== 'OPERATIVO');
+    if (activeEntries.length === 0) return;
+
+    let updatedAny = false;
+
+    for (const entry of activeEntries) {
+      const actions = entry.acciones_taller || [];
+      const lastSyncAction = [...actions].reverse().find(a => a.descripcion === 'Sincronización diaria de estadía');
+      
+      const lastSyncDate = lastSyncAction ? lastSyncAction.fecha_accion : entry.fecha_ingreso;
+      const daysToSync = getDiffDays(lastSyncDate, today);
+
+      if (daysToSync > 0) {
+        const estado = entry.estado || 'REPARACION';
+        const updates: any = {};
+        
+        if (estado === 'REPARACION') {
+          updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysToSync;
+        } else if (estado === 'COMPRAS') {
+          updates.estadia_compras = Number(entry.estadia_compras || 0) + daysToSync;
+        } else if (estado === 'PRUEBA') {
+          updates.estadia_prueba = Number(entry.estadia_prueba || 0) + daysToSync;
+        }
+
+        const { error: updateError } = await supabase
+          .from('ingresos_taller')
+          .update(updates)
+          .eq('id', entry.id);
+
+        if (!updateError) {
+          await supabase.from('acciones_taller').insert([{
+            ingreso_id: entry.id,
+            descripcion: 'Sincronización diaria de estadía',
+            fecha_accion: today,
+            responsable: 'Sistema'
+          }]);
+          updatedAny = true;
+        }
+      }
+    }
+
+    if (updatedAny) {
+      await refreshData();
+    }
+  };
+
+  React.useEffect(() => {
+    if (entries.length > 0 && !isProcessing) {
+      syncDailyCounters();
+    }
+  }, [entries.length]);
+
   const getWorkshopStatus = (entry: MaintenanceEntry) => {
     const estado = entry.estado || 'REPARACION';
     const isOperative = estado === 'OPERATIVO';
@@ -305,22 +358,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const isTesting = estado === 'PRUEBA';
     const isInRepair = estado === 'REPARACION';
 
-    // Calculate live days in current state
-    const actions = entry.acciones_taller || [];
-    // Sort actions by date to ensure we find the actual last status change
-    const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion) || a.id.localeCompare(b.id));
-    
-    const lastStatusAction = [...sortedActions].reverse().find(a => 
-      a.descripcion.startsWith('Cambio de estado a:') || 
-      a.descripcion.includes('Cambio de estado a:')
-    );
-    
-    const lastChangeDate = lastStatusAction ? lastStatusAction.fecha_accion : entry.fecha_ingreso;
-    const liveDays = isOperative ? 0 : getDiffDays(lastChangeDate, today);
-
-    const repairDays = Number(entry.estadia_reparacion || 0) + (isInRepair ? liveDays : 0);
-    const partsDays = Number(entry.estadia_compras || 0) + (isWaitingParts ? liveDays : 0);
-    const testingDays = Number(entry.estadia_prueba || 0) + (isTesting ? liveDays : 0);
+    const repairDays = Number(entry.estadia_reparacion || 0);
+    const partsDays = Number(entry.estadia_compras || 0);
+    const testingDays = Number(entry.estadia_prueba || 0);
 
     // Total days should be the difference between entry and today/exit
     const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
@@ -342,12 +382,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       const actions = entry.acciones_taller || [];
       const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion) || a.id.localeCompare(b.id));
       
-      const lastStatusAction = [...sortedActions].reverse().find(a => 
+      const lastCheckpointAction = [...sortedActions].reverse().find(a => 
         a.descripcion.startsWith('Cambio de estado a:') || 
-        a.descripcion.includes('Cambio de estado a:')
+        a.descripcion.includes('Cambio de estado a:') ||
+        a.descripcion === 'Sincronización diaria de estadía'
       );
       
-      const lastChangeDate = lastStatusAction ? lastStatusAction.fecha_accion : entry.fecha_ingreso;
+      const lastChangeDate = lastCheckpointAction ? lastCheckpointAction.fecha_accion : entry.fecha_ingreso;
       const daysDiff = getDiffDays(lastChangeDate, today);
 
       const updates: any = { estado: newStatus };
