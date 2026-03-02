@@ -275,8 +275,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     const partsDays = Number(entry.estadia_compras || 0);
     const testingDays = Number(entry.estadia_prueba || 0);
 
+    const totalDays = repairDays + partsDays + testingDays;
     const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
-    const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
     return { 
       isOperative, isWaitingParts, isTesting, isInRepair, 
@@ -815,8 +815,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                           })()}
                         </div>
 
-                        <div className="mt-2 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded border border-red-100">
-                          -{formatCurrencyAbbr(loss)}
+                        <div 
+                          className="mt-2 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded border border-red-100 cursor-help"
+                          title="Impacto económico estimado por inactividad del equipo"
+                        >
+                          {formatCurrencyAbbr(loss)}
                         </div>
                       </div>
                     </td>
