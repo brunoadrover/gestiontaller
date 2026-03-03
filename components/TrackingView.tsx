@@ -227,13 +227,17 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [newEntry, setNewEntry] = useState({
     interno: '',
     fecha_ingreso: today,
-    fecha_salida: '', // Nuevo campo estado inicial
+    fecha_salida: '', 
     obra_asignada: '',
     informe_fallas: '',
     firstAction: '',
     responsable: '',
     actionDate: today,
-    observaciones: ''
+    observaciones: '',
+    // Campos para nuevo equipo si no existe
+    tipo: '',
+    marca: '',
+    modelo: ''
   });
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
@@ -788,15 +792,44 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   }, [newEntry.interno, equipment]);
 
   const handleAddEntry = async () => {
-    if (!matchedEquipment || !newEntry.firstAction.trim()) return;
+    const isNewEquipment = !matchedEquipment && newEntry.interno.trim() !== '';
+    if (!newEntry.firstAction.trim() || (!matchedEquipment && !isNewEquipment)) return;
+    
+    // Si es nuevo equipo, validar que tenga tipo y marca al menos
+    if (isNewEquipment && (!newEntry.tipo.trim() || !newEntry.marca.trim())) {
+      alert("Por favor complete el tipo y marca para el nuevo equipo.");
+      return;
+    }
+
     setIsProcessing(true);
     try {
+      let equipmentId = matchedEquipment?.id;
+
+      // 1. Si el equipo es nuevo, crearlo en la tabla 'equipos'
+      if (isNewEquipment) {
+        const { data: eqData, error: eqError } = await supabase
+          .from('equipos')
+          .insert([{
+            id: newEntry.interno.trim(),
+            tipo: newEntry.tipo.trim(),
+            marca: newEntry.marca.trim(),
+            modelo: newEntry.modelo.trim(),
+            valor_nuevo: 0,
+            demerito: 0.8,
+            horas: 0
+          }])
+          .select();
+
+        if (eqError) throw eqError;
+        equipmentId = eqData[0].id;
+      }
+
       const { data: entData, error: entError } = await supabase
         .from('ingresos_taller')
         .insert([{
-          equipo_id: matchedEquipment.id,
+          equipo_id: equipmentId,
           fecha_ingreso: newEntry.fecha_ingreso,
-          fecha_salida: newEntry.fecha_salida || null, // Guardar fecha salida
+          fecha_salida: newEntry.fecha_salida || null, 
           obra_asignada: newEntry.obra_asignada,
           informe_fallas: newEntry.informe_fallas,
           observaciones: newEntry.observaciones,
@@ -828,7 +861,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       await refreshData();
       setNewEntry({
         interno: '', fecha_ingreso: today, fecha_salida: '', obra_asignada: '', informe_fallas: '',
-        firstAction: '', responsable: '', actionDate: today, observaciones: ''
+        firstAction: '', responsable: '', actionDate: today, observaciones: '',
+        tipo: '', marca: '', modelo: ''
       });
       setShowAddForm(false);
     } catch (e) {
@@ -1033,14 +1067,33 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
             <div>
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Interno</label>
-              <input type="text" value={newEntry.interno} onChange={e => setNewEntry({...newEntry, interno: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold uppercase text-slate-950" placeholder="E-000" />
+              <input type="text" value={newEntry.interno} onChange={e => setNewEntry({...newEntry, interno: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold uppercase text-slate-950" placeholder="E1000" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Validación Equipo</label>
-              <div className="bg-slate-50 border border-slate-100 rounded p-2 text-sm h-[38px] flex items-center text-slate-700 italic font-medium">
-                {matchedEquipment ? `${matchedEquipment.tipo} | ${matchedEquipment.marca}` : 'Interno no encontrado...'}
+              <div className={`border rounded p-2 text-sm h-[38px] flex items-center italic font-medium ${matchedEquipment ? 'bg-green-50 border-green-200 text-green-700' : (newEntry.interno.trim() !== '' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-100 text-slate-700')}`}>
+                {matchedEquipment ? `${matchedEquipment.tipo} | ${matchedEquipment.marca}` : (newEntry.interno.trim() !== '' ? '⚠️ Equipo no encontrado. Se creará uno nuevo.' : 'Esperando interno...')}
               </div>
             </div>
+            
+            {/* Campos condicionales para nuevo equipo */}
+            {!matchedEquipment && newEntry.interno.trim() !== '' && (
+              <>
+                <div className="md:col-span-1">
+                  <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Tipo (Nuevo)</label>
+                  <input type="text" value={newEntry.tipo} onChange={e => setNewEntry({...newEntry, tipo: e.target.value})} className="w-full bg-amber-50 border border-amber-400 rounded p-2 text-sm font-bold text-slate-950" placeholder="Ej: Excavadora" />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Marca (Nuevo)</label>
+                  <input type="text" value={newEntry.marca} onChange={e => setNewEntry({...newEntry, marca: e.target.value})} className="w-full bg-amber-50 border border-amber-400 rounded p-2 text-sm font-bold text-slate-950" placeholder="Ej: CAT" />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Modelo (Nuevo)</label>
+                  <input type="text" value={newEntry.modelo} onChange={e => setNewEntry({...newEntry, modelo: e.target.value})} className="w-full bg-amber-50 border border-amber-400 rounded p-2 text-sm font-bold text-slate-950" placeholder="Ej: 320D" />
+                </div>
+              </>
+            )}
+
             <div>
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Obra</label>
               <input type="text" value={newEntry.obra_asignada} onChange={e => setNewEntry({...newEntry, obra_asignada: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm outline-none text-slate-950" placeholder="Obra" />
@@ -1065,7 +1118,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               <label className="block text-[10px] font-black text-slate-500 mb-1 uppercase">Mecánico</label>
               <input type="text" value={newEntry.responsable} onChange={e => setNewEntry({...newEntry, responsable: e.target.value})} className="w-full bg-white border border-slate-400 rounded p-2 text-sm font-bold text-slate-950" placeholder="Nombre" />
             </div>
-            <button onClick={handleAddEntry} disabled={!matchedEquipment || isProcessing} className="w-full h-[38px] bg-green-600 text-white rounded font-black hover:bg-green-700 shadow-md uppercase disabled:bg-slate-300">
+            <button 
+              onClick={handleAddEntry} 
+              disabled={(!matchedEquipment && newEntry.interno.trim() === '') || isProcessing} 
+              className="w-full h-[38px] bg-green-600 text-white rounded font-black hover:bg-green-700 shadow-md uppercase disabled:bg-slate-300"
+            >
               {isProcessing ? '...' : 'Registrar'}
             </button>
           </div>
