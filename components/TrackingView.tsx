@@ -562,7 +562,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       
       startY += (splitPrelim.length * 5) + 6;
 
-      const actions = entry.acciones_taller || [];
+      const actions = (entry.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
       const tableData: any[] = actions.map((action, idx) => {
         const currentActionDate = action.fecha_accion;
         const nextAction = actions[idx + 1];
@@ -1099,7 +1099,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                 const eq = equipment.find(e => e.id === entry.equipo_id);
                 const { isOperative, isWaitingParts, isTesting, isInRepair, totalDays, breakdown } = getWorkshopStatus(entry);
                 const loss = calculateLoss(totalDays, eq);
-                const actions = entry.acciones_taller || [];
+                const allActions = entry.acciones_taller || [];
+                const actions = allActions.filter(a => a.responsable !== 'Sistema');
                 const firstAction = actions[0];
                 const isEditingFirst = editingActionId === firstAction?.id;
                 const isEditingEntry = editingEntryId === entry.id;

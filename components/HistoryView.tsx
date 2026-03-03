@@ -400,7 +400,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       
       startY += (splitPrelim.length * 5) + 6;
 
-      const actions = entry.acciones_taller || [];
+      const actions = (entry.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
       const tableData: any[] = actions.map((action, idx) => {
         const currentActionDate = action.fecha_accion;
         const nextAction = actions[idx + 1];
@@ -919,32 +919,35 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
               <div className="space-y-4">
-                {(selectedEntryForActions.acciones_taller || []).length > 0 ? (
-                  (selectedEntryForActions.acciones_taller || []).map((action, idx) => (
-                    <div key={action.id} className="relative pl-8 before:absolute before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-slate-200 last:before:h-4">
-                      <div className="absolute left-0 top-1 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full flex items-center justify-center z-10">
-                        <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                      </div>
-                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-wider">
-                            {formatDateDisplay(action.fecha_accion)}
-                          </span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase">
-                            Resp: {action.responsable}
-                          </span>
+                {(() => {
+                  const actions = (selectedEntryForActions.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
+                  return actions.length > 0 ? (
+                    actions.map((action, idx) => (
+                      <div key={action.id} className="relative pl-8 before:absolute before:left-3 before:top-0 before:bottom-0 before:w-0.5 before:bg-slate-200 last:before:h-4">
+                        <div className="absolute left-0 top-1 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full flex items-center justify-center z-10">
+                          <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
                         </div>
-                        <p className="text-sm text-slate-700 font-medium leading-relaxed">
-                          {action.descripcion}
-                        </p>
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-wider">
+                              {formatDateDisplay(action.fecha_accion)}
+                            </span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">
+                              Resp: {action.responsable}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                            {action.descripcion}
+                          </p>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-slate-400 italic font-medium">
+                      No hay avances registrados para este equipo.
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-12 text-slate-400 italic font-medium">
-                    No hay avances registrados para este equipo.
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
