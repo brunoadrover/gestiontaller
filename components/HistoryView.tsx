@@ -224,7 +224,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     informe_fallas: string;
     fecha_ingreso: string;
     fecha_salida: string;
-  }>({ obra_asignada: '', informe_fallas: '', fecha_ingreso: '', fecha_salida: '' });
+    observaciones: string;
+  }>({ obra_asignada: '', informe_fallas: '', fecha_ingreso: '', fecha_salida: '', observaciones: '' });
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [tempComment, setTempComment] = useState('');
@@ -717,6 +718,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                 <th className="px-4 py-4">Ingreso / Obra</th>
                 <th className="px-4 py-4">Motivo / Informe Fallas</th>
                 <th className="px-4 py-4">Último Avance / Estado</th>
+                <th className="px-4 py-4">Observaciones</th>
                 <th className="px-4 py-4 text-center">Estadía</th>
                 <th className="px-4 py-4 text-center">Acciones</th>
               </tr>
@@ -726,7 +728,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                 const eq = equipment.find(e => e.id === entry.equipo_id);
                 const { isOperative, totalDays, endDate } = getWorkshopStatus(entry);
                 const loss = calculateLoss(totalDays, eq);
-                const actions = entry.acciones_taller || [];
+                const actions = (entry.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
                 const lastAction = actions[actions.length - 1];
                 
                 const isEditingEntry = editingEntryId === entry.id;
@@ -788,6 +790,15 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                         )}
                       </div>
                     </td>
+                    <td className="px-4 py-4">
+                      {isEditingEntry ? (
+                        <textarea value={editEntryData.observaciones} onChange={e => setEditEntryData({...editEntryData, observaciones: e.target.value})} className="w-full p-1 text-xs border rounded h-12" placeholder="Observaciones finales..." />
+                      ) : (
+                        <p className="text-xs text-slate-500 font-medium line-clamp-2 max-w-xs">
+                          {entry.observaciones || '-'}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-4 text-center">
                       <div className="inline-flex flex-col items-center">
                         <span className="text-lg font-black text-slate-800 leading-none">{totalDays}</span>
@@ -834,7 +845,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                           <>
                             <button onClick={() => { setSelectedEntryForActions(entry); setShowActionsModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Historial de Avances"><Clock className="w-4 h-4" /></button>
                             <button onClick={() => handleOpenReport(entry)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Informe Técnico"><FileText className="w-4 h-4" /></button>
-                            <button onClick={() => { setEditingEntryId(entry.id); setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas || '', fecha_ingreso: entry.fecha_ingreso, fecha_salida: entry.fecha_salida || '' }); }} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all"><Edit2 className="w-4 h-4" /></button>
+                            <button onClick={() => { setEditingEntryId(entry.id); setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas || '', fecha_ingreso: entry.fecha_ingreso, fecha_salida: entry.fecha_salida || '', observaciones: entry.observaciones || '' }); }} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all"><Edit2 className="w-4 h-4" /></button>
                             <button onClick={() => setDeleteConfirmId(entry.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
                           </>
                         )}
@@ -845,7 +856,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
               })}
               {filteredEntries.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-slate-400 italic font-medium">
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 italic font-medium">
                     No hay equipos operativos registrados en el historial.
                   </td>
                 </tr>
