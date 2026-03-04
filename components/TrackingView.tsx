@@ -514,14 +514,38 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     let totalStayDaysAll = 0;
     let currentlyInWorkshopCount = 0;
     let operativeCount = 0;
+    let waitingPartsCount = 0;
+    let totalRepairDays = 0;
+    let totalPartsDays = 0;
+    let entriesWithStay = 0;
+
+    // Calculate summary stats from ALL entries to match Dashboard
+    entries.forEach(entry => {
+      const eq = equipment.find(e => e.id === entry.equipo_id);
+      const { isOperative, isWaitingParts, totalDays, breakdown } = getWorkshopStatus(entry);
+      const loss = calculateLoss(totalDays, eq);
+      
+      totalLossAll += loss;
+      totalStayDaysAll += totalDays;
+      
+      if (totalDays > 0) {
+        entriesWithStay++;
+        totalRepairDays += breakdown.repairDays;
+        totalPartsDays += breakdown.partsDays;
+      }
+
+      if (isOperative) {
+        operativeCount++;
+      } else {
+        currentlyInWorkshopCount++;
+        if (isWaitingParts) waitingPartsCount++;
+      }
+    });
 
     filteredEntries.forEach((entry, index) => {
       const eq = equipment.find(e => e.id === entry.equipo_id);
       const { isOperative, isWaitingParts, isTesting, totalDays, breakdown } = getWorkshopStatus(entry);
       const loss = calculateLoss(totalDays, eq);
-      totalLossAll += loss;
-      totalStayDaysAll += totalDays;
-      if (isOperative) operativeCount++; else currentlyInWorkshopCount++;
 
       let headerBg = [219, 234, 254]; 
       if (isOperative) headerBg = [220, 252, 231]; 
@@ -627,13 +651,19 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.text('RESUMEN DE GESTIÓN Y KPI DE FLOTA', 14, 25);
     
     const avgStay = entries.length > 0 ? (totalStayDaysAll / entries.length).toFixed(2) : "0.00";
+    const avgRepair = entriesWithStay > 0 ? (totalRepairDays / entriesWithStay).toFixed(2) : "0.00";
+    const avgParts = entriesWithStay > 0 ? (totalPartsDays / entriesWithStay).toFixed(2) : "0.00";
+
     autoTable(doc, {
       startY: 40,
       head: [['Indicador', 'Valor']],
       body: [
         ['Equipos en taller hoy', currentlyInWorkshopCount],
+        ['Equipos esperando repuestos', waitingPartsCount],
         ['Equipos operativos', operativeCount],
-        ['Estadía promedio', `${avgStay} d.`],
+        ['Estadía promedio general', `${avgStay} d.`],
+        ['Promedio días en reparación', `${avgRepair} d.`],
+        ['Promedio días espera repuestos', `${avgParts} d.`],
         ['Pérdida facturación total', formatCurrencyAbbr(totalLossAll)],
       ],
       theme: 'striped',

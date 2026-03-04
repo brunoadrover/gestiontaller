@@ -10,13 +10,14 @@ interface DashboardViewProps {
 }
 
 const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => {
-  
-  const stats = useMemo(() => {
+    const stats = useMemo(() => {
     const totalEntries = entries.length;
     let totalStayDaysAcrossAll = 0;
     let totalLossAll = 0;
+    let totalRepairDays = 0;
+    let totalPartsDays = 0;
+    let entriesWithStay = 0;
 
-    const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -41,6 +42,12 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
 
       totalStayDaysAcrossAll += stayDays;
 
+      if (stayDays > 0) {
+        entriesWithStay++;
+        totalRepairDays += Number(entry.estadia_reparacion || 0);
+        totalPartsDays += Number(entry.estadia_compras || 0);
+      }
+
       if (eq) {
         const entryLoss = (stayDays / 30) * 0.0325 * (eq.demerito || 0.8) * 0.5 * (eq.valor_nuevo || 0);
         totalLossAll += entryLoss;
@@ -63,6 +70,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
     };
 
     const avgStay = totalEntries > 0 ? (totalStayDaysAcrossAll / totalEntries).toFixed(2) : "0.00";
+    const avgRepairDays = entriesWithStay > 0 ? (totalRepairDays / entriesWithStay).toFixed(2) : "0.00";
+    const avgPartsDays = entriesWithStay > 0 ? (totalPartsDays / entriesWithStay).toFixed(2) : "0.00";
 
     const statusData = [
       { name: 'En Reparación', value: inRepairCount },
@@ -77,8 +86,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
     });
 
     return { 
-      totalEntries, currentlyInWorkshop, operativeCount, 
-      statusData, avgStay, 
+      totalEntries, currentlyInWorkshop, operativeCount, waitingPartsCount,
+      statusData, avgStay, avgRepairDays, avgPartsDays,
       totalLossFormatted: formatCurrencyUSD(totalLossAll),
       typeData: Object.entries(typeMap).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 5)
     };
@@ -116,6 +125,30 @@ const DashboardView: React.FC<DashboardViewProps> = ({ entries, equipment }) => 
           value={stats.currentlyInWorkshop}
           color="bg-blue-50"
           desc="Maquinaria fuera de servicio hoy"
+        />
+        <StatCard 
+          icon={<ShoppingCart className="w-6 h-6 text-orange-500" />}
+          label="Esperando Repuestos"
+          value={stats.waitingPartsCount}
+          color="bg-orange-50"
+          desc="Equipos con estado 'COMPRAS'"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatCard 
+          icon={<Clock className="w-6 h-6 text-blue-600" />}
+          label="Promedio en Reparación"
+          value={`${stats.avgRepairDays} d.`}
+          color="bg-blue-50"
+          desc="Σ estadía_reparación / equipos intervenidos"
+        />
+        <StatCard 
+          icon={<RefreshCw className="w-6 h-6 text-orange-600" />}
+          label="Promedio Espera Repuestos"
+          value={`${stats.avgPartsDays} d.`}
+          color="bg-orange-50"
+          desc="Σ estadía_compras / equipos intervenidos"
         />
         <StatCard 
           icon={<CheckCircle2 className="w-6 h-6 text-green-500" />}
