@@ -223,7 +223,31 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   });
   
   const today = new Date().toLocaleDateString('en-CA'); 
-  
+  const MAINTENANCE_GOAL = 90;
+
+  const getGoalStatus = (fechaIngreso: string, fechaSalida?: string) => {
+    const start = new Date(fechaIngreso + 'T00:00:00');
+    const end = fechaSalida ? new Date(fechaSalida + 'T00:00:00') : new Date();
+    end.setHours(0, 0, 0, 0);
+    
+    const daysElapsed = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    const remaining = MAINTENANCE_GOAL - daysElapsed;
+    
+    let color = 'text-green-600';
+    let bgColor = 'bg-green-50';
+    let label = 'días restantes';
+    
+    if (remaining < 0) {
+      color = 'text-red-600';
+      bgColor = 'bg-red-50';
+      label = 'días excedidos';
+    } else if (remaining <= 15) {
+      color = 'text-orange-500';
+      bgColor = 'bg-orange-50';
+    }
+    
+    return { remaining: Math.abs(remaining), color, bgColor, label, isExceeded: remaining < 0 };
+  };
   const [newEntry, setNewEntry] = useState({
     interno: '',
     fecha_ingreso: today,
@@ -566,9 +590,26 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       
       const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | SALIDA ESTIMADA: ${estSalida}`;
       doc.text(headerText, 18, startY + 7);
+
+      // Goal display in PDF header
+      const goalStatus = getGoalStatus(entry.fecha_ingreso, entry.fecha_salida);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(`OBJETIVO: ${MAINTENANCE_GOAL} DÍAS`, 280, startY + 7, { align: 'right' });
+      
+      if (goalStatus.isExceeded) {
+        doc.setTextColor(153, 27, 27); // Red
+      } else if (goalStatus.remaining <= 15) {
+        doc.setTextColor(180, 83, 9); // Orange
+      } else {
+        doc.setTextColor(21, 128, 61); // Green
+      }
+      doc.text(`${goalStatus.remaining} ${goalStatus.label.toUpperCase()}`, 280, startY + 13, { align: 'right' });
       
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
+      doc.setTextColor(30, 41, 59);
       const breakdownText = `Reparación: ${breakdown.repairDays}d | Repuestos: ${breakdown.partsDays}d | Prueba: ${breakdown.testingDays}d`;
       doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 13);
       
@@ -1209,6 +1250,23 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                     <tr className={`${isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
+                        
+                        {/* Maintenance Goal Display */}
+                        {(() => {
+                          const goal = getGoalStatus(entry.fecha_ingreso, entry.fecha_salida);
+                          return (
+                            <div 
+                              className={`mt-2 p-1.5 rounded border flex flex-col items-center justify-center cursor-help transition-all hover:shadow-md ${goal.bgColor} ${goal.color.replace('text-', 'border-')}`}
+                              title={`Objetivo de estadía: ${MAINTENANCE_GOAL} días. Se calcula desde la fecha de ingreso.`}
+                            >
+                              <span className="text-[8px] font-black uppercase opacity-60">Objetivo {MAINTENANCE_GOAL}d</span>
+                              <span className={`text-[10px] font-black leading-none ${goal.color}`}>
+                                {goal.remaining} {goal.label}
+                              </span>
+                            </div>
+                          );
+                        })()}
+
                         <div className="mt-2 flex flex-col gap-1">
                           <div className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${isOperative ? 'bg-green-600 text-white' : (isTesting ? 'bg-violet-600 text-white' : (isWaitingParts ? 'bg-orange-500 text-white' : 'bg-blue-600 text-white'))}`}>
                             {totalDays} d. Total
