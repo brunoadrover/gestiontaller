@@ -769,8 +769,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.setFont('helvetica', 'bold');
     doc.text('DATOS DEL EQUIPO', 18, startY + 6);
     
-    const estSalida = currentReportEntry.fecha_salida ? formatDateDisplay(currentReportEntry.fecha_salida) : 'N/A';
-    
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     
@@ -799,11 +797,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.text(`Ingreso:`, 70, startY + 22);
     doc.setFont('helvetica', 'bold');
     doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Salida Est.:`, 140, startY + 22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${estSalida}`, 160, startY + 22);
 
     // --- Evaluación Técnica ---
     startY += 38;
@@ -846,7 +839,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       doc.setPage(i);
       doc.setFontSize(8);
       doc.setTextColor(150);
-      doc.text(`Página ${i} de ${pageCount} - Generado por Sistema GEyT`, 105, 290, { align: 'center' });
+      doc.text(`Página ${i} de ${pageCount}`, 105, 290, { align: 'center' });
     }
 
     const fileName = `${currentReportEntry.equipo_id}_${todayStr.replace(/\//g, '-')}_informe_taller.pdf`;
