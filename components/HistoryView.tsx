@@ -183,6 +183,8 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
 const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos'>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
@@ -359,8 +361,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       result = result.filter(entry => getWorkshopType(entry) === workshopFilter);
     }
 
+    if (startDate) {
+      result = result.filter(entry => entry.fecha_salida && entry.fecha_salida >= startDate);
+    }
+
+    if (endDate) {
+      result = result.filter(entry => entry.fecha_salida && entry.fecha_salida <= endDate);
+    }
+
     return result;
-  }, [entries, searchTerm, workshopFilter, equipment]);
+  }, [entries, searchTerm, workshopFilter, equipment, startDate, endDate]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -374,6 +384,19 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
+
+    // --- Filtros Aplicados ---
+    let filterText = `Taller: ${workshopFilter === 'all' ? 'Todos' : workshopFilter.charAt(0).toUpperCase() + workshopFilter.slice(1)}`;
+    if (searchTerm) filterText += ` | Búsqueda: "${searchTerm}"`;
+    if (startDate || endDate) {
+      const from = startDate ? formatDateDisplay(startDate) : '...';
+      const to = endDate ? formatDateDisplay(endDate) : '...';
+      filterText += ` | Periodo: ${from} al ${to}`;
+    }
+    
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Filtros aplicados: ${filterText}`, 14, 26);
     
     let startY = 35;
 
@@ -715,6 +738,34 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest">Registros finalizados y entregados</p>
         </div>
         <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <div className="flex items-center gap-1">
+              <input 
+                type="date" 
+                className="text-xs font-bold text-slate-600 outline-none bg-transparent"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                placeholder="Desde"
+              />
+              <span className="text-slate-300">|</span>
+              <input 
+                type="date" 
+                className="text-xs font-bold text-slate-600 outline-none bg-transparent"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                placeholder="Hasta"
+              />
+              {(startDate || endDate) && (
+                <button 
+                  onClick={() => { setStartDate(''); setEndDate(''); }}
+                  className="ml-1 text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input 
