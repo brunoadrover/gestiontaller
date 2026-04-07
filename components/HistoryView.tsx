@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2 } from 'lucide-react';
+import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, BarChart3 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -639,6 +639,285 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.save(fileName);
   };
 
+  const handleExportManagementSummary = () => {
+    const doc = new jsPDF('landscape');
+    const todayStr = new Date().toLocaleDateString('es-AR');
+
+    const drawHeader = (pageDoc: any) => {
+      pageDoc.setFont('helvetica', 'bold');
+      pageDoc.setFontSize(18);
+      pageDoc.setTextColor(30, 41, 59);
+      pageDoc.text('Resumen de Gestión - GEyT', 14, 20);
+      
+      pageDoc.setFontSize(9);
+      pageDoc.setFont('helvetica', 'normal');
+      pageDoc.text(`Fecha de Emisión: ${todayStr}`, 283, 20, { align: 'right' });
+
+      // Legend below title
+      pageDoc.setFontSize(9);
+      pageDoc.setFont('helvetica', 'bold');
+      pageDoc.setTextColor(185, 28, 28); // red-700
+      pageDoc.text('* Nota: No se computan en este resumen aquellos equipos cuya estadía registrada sea de cero (0) días.', 14, 26);
+
+      // Reset color for subsequent text
+      pageDoc.setTextColor(30, 41, 59);
+    };
+
+    drawHeader(doc);
+
+    // Grouping logic
+    const months: { [key: string]: any } = {};
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    filteredEntries.forEach(entry => {
+      if (!entry.fecha_salida) return;
+      const date = new Date(entry.fecha_salida + 'T00:00:00');
+      const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+      const monthLabel = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+
+      if (!months[monthKey]) {
+        months[monthKey] = {
+          label: monthLabel,
+          workshops: {
+            pesados: { entries: [], billing: 0 },
+            camiones: { entries: [], billing: 0 },
+            livianos: { entries: [], billing: 0 }
+          },
+          monthTotalBilling: 0
+        };
+      }
+
+      const eq = equipment.find(e => e.id === entry.equipo_id);
+      const id = entry.equipo_id.toUpperCase();
+      const type = (eq?.tipo || '').toLowerCase();
+      
+      let workshopKey: 'pesados' | 'camiones' | 'livianos' | null = null;
+      if (id.startsWith('E')) {
+        workshopKey = 'pesados';
+      } else if (id.startsWith('V')) {
+        if (type.includes('camión') || type.includes('camion') || type.includes('bus')) {
+          workshopKey = 'camiones';
+        } else {
+          workshopKey = 'livianos';
+        }
+      }
+
+      if (workshopKey) {
+        const { totalDays } = getWorkshopStatus(entry);
+        if (totalDays > 0) {
+          // Formula: Valor Nuevo * 0.5 * Demerito * 0.0325
+          const demerito = eq?.demerito || 0.8;
+          const valorNuevo = eq?.valor_nuevo || 0;
+          const billing = valorNuevo * 0.5 * demerito * 0.0325;
+          
+          months[monthKey].workshops[workshopKey].entries.push({
+            interno: entry.equipo_id,
+            marcaModelo: `${eq?.marca || ''} ${eq?.modelo || ''}`.trim(),
+            uso: entry.horometro_salida || entry.kilometraje_salida || 0,
+            fechaOperativo: entry.fecha_salida,
+            billing: billing
+          });
+          
+          months[monthKey].workshops[workshopKey].billing += billing;
+          months[monthKey].monthTotalBilling += billing;
+        }
+      }
+    });
+
+    // Sort months chronologically
+    const sortedMonthKeys = Object.keys(months).sort();
+
+    let startY = 30;
+    let monthsOnPage = 0;
+    
+    const workshopLabels = {
+      pesados: 'Taller Pesados',
+      camiones: 'Taller Camiones',
+      livianos: 'Taller Livianos'
+    };
+
+    sortedMonthKeys.forEach((key, index) => {
+      const monthData = months[key];
+      
+      // Check if we need a new page before starting a month
+      if (startY > 160) {
+        doc.addPage();
+        drawHeader(doc);
+        startY = 30;
+        monthsOnPage = 0;
+      }
+
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(monthData.label, 14, startY + 5);
+      startY += 10;
+
+      (['pesados', 'camiones', 'livianos'] as const).forEach(wKey => {
+        const wData = monthData.workshops[wKey];
+        if (wData.entries.length === 0) return;
+
+        // Check if we need a new page before a workshop table
+        if (startY > 170) {
+          doc.addPage();
+          drawHeader(doc);
+          startY = 30;
+          
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text(`${monthData.label} (cont.)`, 14, startY + 5);
+          startY += 10;
+        }
+
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(workshopLabels[wKey], 14, startY + 5);
+
+        const tableBody = wData.entries.map((e: any) => [
+          e.interno,
+          e.marcaModelo,
+          e.uso,
+          e.fechaOperativo,
+          formatCurrencyAbbr(e.billing)
+        ]);
+
+        autoTable(doc, {
+          startY: startY + 8,
+          head: [['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Facturación Disp.']],
+          body: tableBody,
+          foot: [['SUBTOTAL TALLER', '', '', '', formatCurrencyAbbr(wData.billing)]],
+          theme: 'grid',
+          headStyles: { fillColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold' },
+          footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold' },
+          styles: { fontSize: 7, cellPadding: 2 },
+          columnStyles: {
+            0: { fontStyle: 'bold', cellWidth: 40 },
+            2: { halign: 'center', cellWidth: 30 },
+            3: { halign: 'center', cellWidth: 40 },
+            4: { halign: 'right', cellWidth: 50 }
+          }
+        });
+
+        startY = (doc as any).lastAutoTable.finalY + 10;
+      });
+
+      // Month total
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 66, 37); // Verde Inglés (British Racing Green)
+      doc.text(`TOTAL MES ${monthData.label}: ${formatCurrencyAbbr(monthData.monthTotalBilling)}`, 14, startY + 5);
+      doc.setTextColor(30, 41, 59); // Reset color
+      startY += 15;
+
+      monthsOnPage++;
+      
+      // Limit to 2 months per page
+      if (monthsOnPage === 2 && index < sortedMonthKeys.length - 1) {
+        doc.addPage();
+        drawHeader(doc);
+        startY = 30;
+        monthsOnPage = 0;
+      }
+    });
+
+    // --- Final Page: Dashboard Indicators ---
+    doc.addPage();
+    drawHeader(doc);
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Indicadores Generales (Dashboard)', 14, 40);
+
+    // Calculate Dashboard Stats
+    const totalEntries = entries.length;
+    let totalStayDaysAcrossAll = 0;
+    let totalRepairDays = 0;
+    let totalPartsDays = 0;
+    let entriesWithStay = 0;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStrISO = today.toISOString().split('T')[0];
+
+    let operativeCount = 0;
+    let waitingPartsCount = 0;
+    let inRepairCount = 0;
+    let currentlyInWorkshop = 0;
+
+    const getDiffDays = (d1: string, d2: string) => {
+      const start = new Date(d1 + 'T00:00:00');
+      const end = new Date(d2 + 'T00:00:00');
+      return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    };
+
+    entries.forEach(entry => {
+      const estado = entry.estado || 'REPARACION';
+      const isCurrentlyOperative = estado === 'OPERATIVO';
+      
+      const stayDays = getDiffDays(entry.fecha_ingreso, isCurrentlyOperative ? (entry.fecha_salida || todayStrISO) : todayStrISO);
+
+      totalStayDaysAcrossAll += stayDays;
+
+      if (stayDays > 0) {
+        entriesWithStay++;
+        totalRepairDays += Number(entry.estadia_reparacion || 0);
+        totalPartsDays += Number(entry.estadia_compras || 0);
+      }
+
+      if (isCurrentlyOperative) {
+        operativeCount++;
+      } else {
+        currentlyInWorkshop++;
+        if (estado === 'COMPRAS') {
+          waitingPartsCount++;
+        } else {
+          inRepairCount++;
+        }
+      }
+    });
+
+    const avgStay = totalEntries > 0 ? (totalStayDaysAcrossAll / totalEntries).toFixed(2) : "0.00";
+    const avgRepairDays = entriesWithStay > 0 ? (totalRepairDays / entriesWithStay).toFixed(2) : "0.00";
+    const avgPartsDays = entriesWithStay > 0 ? (totalPartsDays / entriesWithStay).toFixed(2) : "0.00";
+
+    const dashboardStats = [
+      ['Indicador', 'Valor', 'Descripción'],
+      ['Estadía Promedio', `${avgStay} días`, 'Suma(estadías) / total ingresos'],
+      ['Equipos en Taller', currentlyInWorkshop.toString(), 'Maquinaria fuera de servicio hoy'],
+      ['Esperando Repuestos', waitingPartsCount.toString(), 'Equipos con estado "COMPRAS"'],
+      ['Promedio en Reparación', `${avgRepairDays} días`, 'Suma(estadía_reparación) / equipos intervenidos'],
+      ['Promedio Espera Repuestos', `${avgPartsDays} días`, 'Suma(estadía_compras) / equipos intervenidos'],
+      ['Operativos', operativeCount.toString(), 'Equipos con service finalizado']
+    ];
+
+    autoTable(doc, {
+      startY: 50,
+      head: [dashboardStats[0]],
+      body: dashboardStats.slice(1),
+      theme: 'striped',
+      headStyles: { fillColor: [30, 41, 59], fontSize: 10, fontStyle: 'bold' },
+      styles: { fontSize: 10, cellPadding: 5 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 60 },
+        1: { fontStyle: 'bold', halign: 'center', cellWidth: 40 },
+        2: { fontStyle: 'normal', textColor: [100, 116, 139] }
+      }
+    });
+
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`Página ${i} de ${pageCount}`, 148, 200, { align: 'center' });
+    }
+
+    doc.save(`resumen_gestion_${todayStr.replace(/\//g, '-')}.pdf`);
+  };
+
   const handleOpenReport = (entry: MaintenanceEntry) => {
     setCurrentReportEntry(entry);
     const existingReport = getExistingReport(entry);
@@ -786,6 +1065,12 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             <option value="camiones">Taller Camiones (V)</option>
             <option value="livianos">Taller Livianos (V)</option>
           </select>
+          <button 
+            onClick={handleExportManagementSummary}
+            className="flex items-center justify-center gap-2 bg-green-700 text-white px-4 py-2 rounded-xl hover:bg-green-800 transition-all shadow-lg text-xs font-black uppercase tracking-widest"
+          >
+            <BarChart3 className="w-4 h-4" /> Resumen de Gestión
+          </button>
           <button 
             onClick={handleExportPDF}
             className="flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-xl hover:bg-slate-900 transition-all shadow-lg text-xs font-black uppercase tracking-widest"
