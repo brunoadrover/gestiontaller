@@ -4,6 +4,7 @@ import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from 
 import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, BarChart3 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { supabase } from '../supabase';
 import { GoogleGenAI } from "@google/genai";
 
@@ -192,6 +193,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   const [selectedEntryForActions, setSelectedEntryForActions] = useState<MaintenanceEntry | null>(null);
 
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showExportSummaryChoice, setShowExportSummaryChoice] = useState(false);
   const [currentReportEntry, setCurrentReportEntry] = useState<MaintenanceEntry | null>(null);
   const [reportData, setReportData] = useState<Partial<TechnicalReport>>({
     motor: '',
@@ -640,31 +642,10 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   };
 
   const handleExportManagementSummary = () => {
-    const doc = new jsPDF('landscape');
-    const todayStr = new Date().toLocaleDateString('es-AR');
+    setShowExportSummaryChoice(true);
+  };
 
-    const drawHeader = (pageDoc: any) => {
-      pageDoc.setFont('helvetica', 'bold');
-      pageDoc.setFontSize(18);
-      pageDoc.setTextColor(30, 41, 59);
-      pageDoc.text('Resumen de Gestión - GEyT', 14, 20);
-      
-      pageDoc.setFontSize(9);
-      pageDoc.setFont('helvetica', 'normal');
-      pageDoc.text(`Fecha de Emisión: ${todayStr}`, 283, 20, { align: 'right' });
-
-      // Legend below title
-      pageDoc.setFontSize(9);
-      pageDoc.setFont('helvetica', 'bold');
-      pageDoc.setTextColor(185, 28, 28); // red-700
-      pageDoc.text('* Nota: No se computan en este resumen aquellos equipos cuya estadía registrada sea de cero (0) días.', 14, 26);
-
-      // Reset color for subsequent text
-      pageDoc.setTextColor(30, 41, 59);
-    };
-
-    drawHeader(doc);
-
+  const getManagementSummaryData = () => {
     // Grouping logic
     const months: { [key: string]: any } = {};
     const monthNames = [
@@ -706,7 +687,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       }
 
       if (workshopKey) {
-        const { totalDays } = getWorkshopStatus(entry);
+        const { totalDays, breakdown } = getWorkshopStatus(entry);
         if (totalDays > 0) {
           // Formula: Valor Nuevo * 0.5 * Demerito * 0.0325
           const demerito = eq?.demerito || 0.8;
@@ -716,9 +697,13 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           months[monthKey].workshops[workshopKey].entries.push({
             interno: entry.equipo_id,
             marcaModelo: `${eq?.marca || ''} ${eq?.modelo || ''}`.trim(),
-            uso: entry.horometro_salida || entry.kilometraje_salida || 0,
+            uso: eq?.horas || 0,
             fechaOperativo: entry.fecha_salida,
-            billing: billing
+            billing: billing,
+            totalDays: totalDays,
+            repairDays: breakdown.repairDays,
+            partsDays: breakdown.partsDays,
+            testingDays: breakdown.testingDays
           });
           
           months[monthKey].workshops[workshopKey].billing += billing;
@@ -727,9 +712,37 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       }
     });
 
-    // Sort months chronologically
     const sortedMonthKeys = Object.keys(months).sort();
+    return { months, sortedMonthKeys };
+  };
 
+  const handleExportManagementSummaryPDF = () => {
+    const { months, sortedMonthKeys } = getManagementSummaryData();
+    const doc = new jsPDF('landscape');
+    const todayStr = new Date().toLocaleDateString('es-AR');
+
+    const drawHeader = (pageDoc: any) => {
+      pageDoc.setFont('helvetica', 'bold');
+      pageDoc.setFontSize(18);
+      pageDoc.setTextColor(30, 41, 59);
+      pageDoc.text('Resumen de Gestión - GEyT', 14, 20);
+      
+      pageDoc.setFontSize(9);
+      pageDoc.setFont('helvetica', 'normal');
+      pageDoc.text(`Fecha de Emisión: ${todayStr}`, 283, 20, { align: 'right' });
+
+      // Legend below title
+      pageDoc.setFontSize(9);
+      pageDoc.setFont('helvetica', 'bold');
+      pageDoc.setTextColor(185, 28, 28); // red-700
+      pageDoc.text('* Nota: No se computan en este resumen aquellos equipos cuya estadía registrada sea de cero (0) días.', 14, 26);
+
+      // Reset color for subsequent text
+      pageDoc.setTextColor(30, 41, 59);
+    };
+
+    drawHeader(doc);
+    
     let startY = 30;
     let monthsOnPage = 0;
     
@@ -781,23 +794,32 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           e.marcaModelo,
           e.uso,
           e.fechaOperativo,
+          e.totalDays,
+          e.repairDays,
+          e.partsDays,
+          e.testingDays,
           formatCurrencyAbbr(e.billing)
         ]);
 
         autoTable(doc, {
           startY: startY + 8,
-          head: [['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Facturación Disp.']],
+          head: [['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']],
           body: tableBody,
-          foot: [['SUBTOTAL TALLER', '', '', '', formatCurrencyAbbr(wData.billing)]],
+          foot: [['SUBTOTAL TALLER', '', '', '', '', '', '', '', formatCurrencyAbbr(wData.billing)]],
           theme: 'grid',
-          headStyles: { fillColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold' },
-          footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold' },
-          styles: { fontSize: 7, cellPadding: 2 },
+          headStyles: { fillColor: [30, 41, 59], fontSize: 7, fontStyle: 'bold' },
+          footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontSize: 7, fontStyle: 'bold' },
+          styles: { fontSize: 6.5, cellPadding: 1.5 },
           columnStyles: {
-            0: { fontStyle: 'bold', cellWidth: 40 },
-            2: { halign: 'center', cellWidth: 30 },
-            3: { halign: 'center', cellWidth: 40 },
-            4: { halign: 'right', cellWidth: 50 }
+            0: { fontStyle: 'bold', cellWidth: 25 },
+            1: { cellWidth: 'auto' },
+            2: { halign: 'center', cellWidth: 15 },
+            3: { halign: 'center', cellWidth: 25 },
+            4: { halign: 'center', cellWidth: 15 },
+            5: { halign: 'center', cellWidth: 12 },
+            6: { halign: 'center', cellWidth: 12 },
+            7: { halign: 'center', cellWidth: 12 },
+            8: { halign: 'right', cellWidth: 35 }
           }
         });
 
@@ -838,9 +860,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     let totalPartsDays = 0;
     let entriesWithStay = 0;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStrISO = today.toISOString().split('T')[0];
+    const todayReport = new Date();
+    todayReport.setHours(0, 0, 0, 0);
+    const todayStrISO = todayReport.toISOString().split('T')[0];
 
     let operativeCount = 0;
     let waitingPartsCount = 0;
@@ -916,6 +938,118 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     }
 
     doc.save(`resumen_gestion_${todayStr.replace(/\//g, '-')}.pdf`);
+    setShowExportSummaryChoice(false);
+  };
+
+  const handleExportManagementSummaryExcel = () => {
+    const { months, sortedMonthKeys } = getManagementSummaryData();
+    const data: any[] = [];
+
+    // Header Info
+    data.push(['Resumen de Gestión - GEyT']);
+    data.push([`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`]);
+    data.push(['* Nota: No se computan aquellos equipos cuya estadía registrada sea de cero (0) días.']);
+    data.push([]);
+
+    const workshopLabels = {
+      pesados: 'Taller Pesados',
+      camiones: 'Taller Camiones',
+      livianos: 'Taller Livianos'
+    };
+
+    sortedMonthKeys.forEach(key => {
+      const monthData = months[key];
+      data.push([monthData.label]);
+      data.push([]);
+
+      (['pesados', 'camiones', 'livianos'] as const).forEach(wKey => {
+        const wData = monthData.workshops[wKey];
+        if (wData.entries.length === 0) return;
+
+        data.push([workshopLabels[wKey]]);
+        data.push(['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']);
+        
+        wData.entries.forEach((e: any) => {
+          data.push([
+            e.interno,
+            e.marcaModelo,
+            e.uso,
+            e.fechaOperativo,
+            e.totalDays,
+            e.repairDays,
+            e.partsDays,
+            e.testingDays,
+            e.billing
+          ]);
+        });
+        
+        data.push(['SUBTOTAL TALLER', '', '', '', '', '', '', '', wData.billing]);
+        data.push([]);
+      });
+
+      data.push([`TOTAL MES ${monthData.label}`, '', '', '', '', '', '', '', monthData.monthTotalBilling]);
+      data.push([]);
+      data.push([]);
+    });
+
+    // Dashboard Info
+    data.push(['Indicadores Generales (Dashboard)']);
+    data.push(['Indicador', 'Valor', 'Descripción']);
+    
+    // Re-calculating dashboard stats (same logic as PDF)
+    const totalEntries = entries.length;
+    let totalStayDaysAcrossAll = 0;
+    let totalRepairDays = 0;
+    let totalPartsDays = 0;
+    let entriesWithStay = 0;
+    const todayReport = new Date();
+    todayReport.setHours(0, 0, 0, 0);
+    const todayStrISO = todayReport.toISOString().split('T')[0];
+    let operativeCount = 0;
+    let waitingPartsCount = 0;
+    let currentlyInWorkshop = 0;
+
+    const getDiffDays = (d1: string, d2: string) => {
+      const start = new Date(d1 + 'T00:00:00');
+      const end = new Date(d2 + 'T00:00:00');
+      return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    };
+
+    entries.forEach(entry => {
+      const estado = entry.estado || 'REPARACION';
+      const isCurrentlyOperative = estado === 'OPERATIVO';
+      const stayDays = getDiffDays(entry.fecha_ingreso, isCurrentlyOperative ? (entry.fecha_salida || todayStrISO) : todayStrISO);
+      totalStayDaysAcrossAll += stayDays;
+      if (stayDays > 0) {
+        entriesWithStay++;
+        totalRepairDays += Number(entry.estadia_reparacion || 0);
+        totalPartsDays += Number(entry.estadia_compras || 0);
+      }
+      if (isCurrentlyOperative) {
+        operativeCount++;
+      } else {
+        currentlyInWorkshop++;
+        if (estado === 'COMPRAS') waitingPartsCount++;
+      }
+    });
+
+    const avgStay = totalEntries > 0 ? (totalStayDaysAcrossAll / totalEntries).toFixed(2) : "0.00";
+    const avgRepairDays = entriesWithStay > 0 ? (totalRepairDays / entriesWithStay).toFixed(2) : "0.00";
+    const avgPartsDays = entriesWithStay > 0 ? (totalPartsDays / entriesWithStay).toFixed(2) : "0.00";
+
+    data.push(['Estadía Promedio', `${avgStay} días`, 'Suma(estadías) / total ingresos']);
+    data.push(['Equipos en Taller', currentlyInWorkshop, 'Maquinaria fuera de servicio hoy']);
+    data.push(['Esperando Repuestos', waitingPartsCount, 'Equipos con estado "COMPRAS"']);
+    data.push(['Promedio en Reparación', `${avgRepairDays} días`, 'Suma(estadía_reparación) / equipos intervenidos']);
+    data.push(['Promedio Espera Repuestos', `${avgPartsDays} días`, 'Suma(estadía_compras) / equipos intervenidos']);
+    data.push(['Operativos', operativeCount, 'Equipos con service finalizado']);
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Resumen de Gestión");
+    
+    XLSX.writeFile(wb, `resumen_gestion_${new Date().toLocaleDateString('es-AR').replace(/\//g, '-')}.xlsx`);
+    setShowExportSummaryChoice(false);
   };
 
   const handleOpenReport = (entry: MaintenanceEntry) => {
@@ -1079,6 +1213,61 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           </button>
         </div>
       </div>
+
+      {showExportSummaryChoice && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Exportar Resumen</h3>
+                  <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest leading-relaxed">Seleccione el formato de descarga deseado</p>
+                </div>
+                <button onClick={() => setShowExportSummaryChoice(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                <button 
+                  onClick={handleExportManagementSummaryPDF}
+                  className="flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-100 hover:border-red-500 bg-white hover:bg-red-50/30 transition-all group"
+                >
+                  <div className="p-3 bg-red-100 rounded-xl text-red-600 transition-transform group-hover:scale-110">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Formato PDF</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Documento para impresión</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={handleExportManagementSummaryExcel}
+                  className="flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-100 hover:border-green-500 bg-white hover:bg-green-50/30 transition-all group"
+                >
+                  <div className="p-3 bg-green-100 rounded-xl text-green-600 transition-transform group-hover:scale-110">
+                    <Download className="w-6 h-6" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Hoja de Cálculo (Excel)</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Archivo para análisis de datos</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+            
+            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setShowExportSummaryChoice(false)}
+                className="px-6 py-2 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
