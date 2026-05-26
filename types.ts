@@ -50,4 +50,11 @@ export interface MaintenanceEntry {
   estadia_prueba?: number;
 }
 
-export type ViewType = 'tracking' | 'equipment' | 'dashboard' | 'history';
+export type ViewType = 'tracking' | 'equipment' | 'dashboard' | 'history' | 'overtime';
+
+export interface Configuracion {
+  id?: any;
+  visible: boolean;
+  titulo: string;
+  sugerencia: string;
+}
