@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Database, LayoutDashboard, LogOut, AlertTriangle, Clock, Settings, Save, Loader2, X } from 'lucide-react';
+import { ClipboardList, Database, LayoutDashboard, LogOut, AlertTriangle, Clock, Settings, Save, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import TrackingView from './components/TrackingView';
 import HistoryView from './components/HistoryView';
 import EquipmentView from './components/EquipmentView';
@@ -20,6 +20,7 @@ const App: React.FC = () => {
 
   const [config, setConfig] = useState<Configuracion | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showPdfSettings, setShowPdfSettings] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   // Configuracion form fields
@@ -269,6 +270,7 @@ const App: React.FC = () => {
                 setFormConfigVisible(config?.visible !== false);
                 setFormConfigTitulo(config?.titulo || 'PLANIFICACION DE JORNADA EXTRAORDINARIA');
                 setFormConfigSugerencia(config?.sugerencia || '');
+                setShowPdfSettings(false);
                 setShowSettingsModal(true);
               }}
               className="p-2.5 text-slate-400 hover:text-green-400 hover:bg-slate-800 rounded-xl transition-all border border-transparent hover:border-slate-800"
@@ -359,29 +361,61 @@ const App: React.FC = () => {
                 </label>
               </div>
 
-              {/* Title Input */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Título Planilla PDF</label>
-                <input 
-                  type="text" 
-                  value={formConfigTitulo} 
-                  onChange={(e) => setFormConfigTitulo(e.target.value)}
-                  placeholder="Ej. PLANIFICACION DE JORNADA EXTRAORDINARIA"
-                  className="w-full px-4 py-3 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#008000] focus:border-transparent transition-all shadow-sm"
-                />
+              {/* PDF Settings Collapsible Toggle */}
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowPdfSettings(!showPdfSettings)}
+                  id="btn-toggle-pdf-settings"
+                  className="w-full flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-2xl transition-all font-sans text-left"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`p-1.5 rounded-lg transition-all ${showPdfSettings ? 'bg-[#008000]/10 text-[#008000]' : 'bg-slate-200 text-slate-500'}`}>
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wide">Configurar Datos de PDF</span>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Título y Sugerencia / Nota al Pie</p>
+                    </div>
+                  </div>
+                  {showPdfSettings ? (
+                    <ChevronUp className="w-4 h-4 text-slate-500" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-500" />
+                  )}
+                </button>
               </div>
 
-              {/* Footer text footnote suggestions/advice */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Sugerencia / Nota al Pie (PDF)</label>
-                <textarea 
-                  value={formConfigSugerencia}
-                  onChange={(e) => setFormConfigSugerencia(e.target.value)}
-                  placeholder="Escriba alguna directiva, nota de seguridad o sugerencia de asistencia que se imprimirá al final de la planilla PDF..."
-                  rows={4}
-                  className="w-full px-4 py-3 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#008000] focus:border-transparent transition-all shadow-sm resize-none"
-                />
-              </div>
+              {/* Collapsed/Expanded fields */}
+              {showPdfSettings && (
+                <div className="space-y-4 pt-1 animate-in slide-in-from-top-3 duration-200">
+                  {/* Title Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Título Planilla PDF</label>
+                    <input 
+                      type="text" 
+                      id="input-config-titulo"
+                      value={formConfigTitulo} 
+                      onChange={(e) => setFormConfigTitulo(e.target.value)}
+                      placeholder="Ej. PLANIFICACION DE JORNADA EXTRAORDINARIA"
+                      className="w-full px-4 py-3 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#008000] focus:border-transparent transition-all shadow-sm"
+                    />
+                  </div>
+
+                  {/* Footer text footnote suggestions/advice */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Sugerencia / Nota al Pie (PDF)</label>
+                    <textarea 
+                      id="textarea-config-sugerencia"
+                      value={formConfigSugerencia}
+                      onChange={(e) => setFormConfigSugerencia(e.target.value)}
+                      placeholder="Escriba alguna directiva, nota de seguridad o sugerencia de asistencia que se imprimirá al final de la planilla PDF..."
+                      rows={4}
+                      className="w-full px-4 py-3 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#008000] focus:border-transparent transition-all shadow-sm resize-none"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer Buttons */}
