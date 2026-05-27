@@ -1057,8 +1057,8 @@ const OvertimeView: React.FC<OvertimeViewProps> = ({ customTitle, customSugerenc
                           <div>
                             {/* Task Top Stats/Badges */}
                             <div className="flex justify-between items-start mb-3">
-                              <span className="text-[8px] font-black uppercase tracking-widest bg-slate-200/65 text-slate-600 px-2 py-0.5 rounded-md">
-                                {tarea.equipo ? `EQ: ${tarea.equipo}` : 'Sin equipo'}
+                              <span className="text-[11px] font-black uppercase tracking-widest bg-slate-200/65 text-slate-700 px-2.5 py-1 rounded-md">
+                                {tarea.equipo ? `Int: ${tarea.equipo}` : 'Sin equipo'}
                               </span>
                               <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
                                 <button
