@@ -202,6 +202,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'testing' | 'operative'>('all');
   const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos'>('all');
+  const [showStalledOnly, setShowStalledOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -324,50 +325,58 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     return `USD ${Math.round(value || 0).toLocaleString('de-DE')}`;
   };
 
+  const syncInProgress = useRef(false);
+
   const syncDailyCounters = async () => {
-    const activeEntries = entries.filter(e => e.estado !== 'OPERATIVO');
-    if (activeEntries.length === 0) return;
+    if (syncInProgress.current) return;
+    syncInProgress.current = true;
+    try {
+      const activeEntries = entries.filter(e => e.estado !== 'OPERATIVO');
+      if (activeEntries.length === 0) return;
 
-    let updatedAny = false;
+      let updatedAny = false;
 
-    for (const entry of activeEntries) {
-      const actions = entry.acciones_taller || [];
-      const lastSyncAction = [...actions].reverse().find(a => a.descripcion === 'Sincronización diaria de estadía');
-      
-      const lastSyncDate = lastSyncAction ? lastSyncAction.fecha_accion : entry.fecha_ingreso;
-      const daysToSync = getDiffDays(lastSyncDate, today);
-
-      if (daysToSync > 0) {
-        const estado = entry.estado || 'REPARACION';
-        const updates: any = {};
+      for (const entry of activeEntries) {
+        const actions = entry.acciones_taller || [];
+        const lastSyncAction = [...actions].reverse().find(a => a.descripcion === 'Sincronización diaria de estadía');
         
-        if (estado === 'REPARACION') {
-          updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysToSync;
-        } else if (estado === 'COMPRAS') {
-          updates.estadia_compras = Number(entry.estadia_compras || 0) + daysToSync;
-        } else if (estado === 'PRUEBA') {
-          updates.estadia_prueba = Number(entry.estadia_prueba || 0) + daysToSync;
-        }
+        const lastSyncDate = lastSyncAction ? lastSyncAction.fecha_accion : entry.fecha_ingreso;
+        const daysToSync = getDiffDays(lastSyncDate, today);
 
-        const { error: updateError } = await supabase
-          .from('ingresos_taller')
-          .update(updates)
-          .eq('id', entry.id);
+        if (daysToSync > 0) {
+          const estado = entry.estado || 'REPARACION';
+          const updates: any = {};
+          
+          if (estado === 'REPARACION') {
+            updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysToSync;
+          } else if (estado === 'COMPRAS') {
+            updates.estadia_compras = Number(entry.estadia_compras || 0) + daysToSync;
+          } else if (estado === 'PRUEBA') {
+            updates.estadia_prueba = Number(entry.estadia_prueba || 0) + daysToSync;
+          }
 
-        if (!updateError) {
-          await supabase.from('acciones_taller').insert([{
-            ingreso_id: entry.id,
-            descripcion: 'Sincronización diaria de estadía',
-            fecha_accion: today,
-            responsable: 'Sistema'
-          }]);
-          updatedAny = true;
+          const { error: updateError } = await supabase
+            .from('ingresos_taller')
+            .update(updates)
+            .eq('id', entry.id);
+
+          if (!updateError) {
+            await supabase.from('acciones_taller').insert([{
+              ingreso_id: entry.id,
+              descripcion: 'Sincronización diaria de estadía',
+              fecha_accion: today,
+              responsable: 'Sistema'
+            }]);
+            updatedAny = true;
+          }
         }
       }
-    }
 
-    if (updatedAny) {
-      await refreshData();
+      if (updatedAny) {
+        await refreshData();
+      }
+    } finally {
+      syncInProgress.current = false;
     }
   };
 
@@ -479,6 +488,24 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     return 'otros';
   };
 
+  const isStalledEntry = (entry: MaintenanceEntry) => {
+    const { isOperative } = getWorkshopStatus(entry);
+    if (isOperative) return false;
+
+    const actions = (entry.acciones_taller || []).filter(
+      (a) => a.responsable !== 'Sistema' && a.descripcion !== 'Sincronización diaria de estadía'
+    );
+    
+    let lastActionDate = entry.fecha_ingreso;
+    if (actions.length > 0) {
+      const sorted = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion));
+      lastActionDate = sorted[sorted.length - 1].fecha_accion;
+    }
+    
+    const diff = getDiffDays(lastActionDate, today);
+    return diff >= 7;
+  };
+
   const filteredEntries = useMemo(() => {
     let result = (entries || []).filter(entry => !getWorkshopStatus(entry).isOperative);
 
@@ -515,8 +542,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       result = result.filter(entry => getWorkshopType(entry) === workshopFilter);
     }
 
+    if (showStalledOnly) {
+      result = result.filter(entry => isStalledEntry(entry));
+    }
+
     return result;
-  }, [entries, searchTerm, statusFilter, workshopFilter, equipment]);
+  }, [entries, searchTerm, statusFilter, workshopFilter, showStalledOnly, equipment]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -1112,6 +1143,20 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             </select>
           </div>
 
+          <button 
+            type="button"
+            onClick={() => setShowStalledOnly(!showStalledOnly)}
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-lg border text-xs font-black uppercase transition-all select-none ${
+              showStalledOnly 
+                ? 'bg-red-600 border-red-700 text-white animate-pulse shadow-md shadow-red-950/15' 
+                : 'bg-white border-slate-300 text-red-600 hover:bg-red-50 hover:border-red-200'
+            }`}
+            title="Filtrar por equipos con avance inactivo hace 7 o más días"
+          >
+            <AlertTriangle className={`w-4 h-4 ${showStalledOnly ? 'text-white' : 'text-red-500 animate-pulse'}`} />
+            <span>Avances Inactivos (≥ 7 días)</span>
+          </button>
+
           <button onClick={handleExportPDF} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg border border-slate-300 transition-all font-bold text-sm">
             <FileText className="w-4 h-4" /> PDF
           </button>
@@ -1233,6 +1278,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                     <tr className={`${isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
+                        
+                        {/* Alerta de Avance Inactivo */}
+                        {isStalledEntry(entry) && (
+                          <div className="mt-2 bg-red-100/90 text-red-700 p-1.5 rounded-lg border border-red-300 font-extrabold uppercase text-[8px] tracking-wide flex items-center justify-center gap-1 shadow-sm leading-tight animate-pulse">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                            <span>Avance Inactivo ≥ 7 d.</span>
+                          </div>
+                        )}
                         
                         {/* Maintenance Goal Display */}
                         {(() => {
