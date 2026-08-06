@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Database, LayoutDashboard, LogOut, AlertTriangle, Clock, Settings, Save, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ClipboardList, Database, LayoutDashboard, LogOut, AlertTriangle, Clock, Settings, Save, Loader2, X, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import TrackingView from './components/TrackingView';
 import HistoryView from './components/HistoryView';
 import EquipmentView from './components/EquipmentView';
@@ -9,6 +9,7 @@ import OvertimeView from './components/OvertimeView';
 import Login from './components/Login';
 import { Equipment, MaintenanceEntry, ViewType, Configuracion } from './types';
 import { supabase } from './supabase';
+import { generateInactivityReportPDF } from './utils/inactivityReport';
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>('tracking');
@@ -359,6 +360,30 @@ const App: React.FC = () => {
                   />
                   <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008000]"></div>
                 </label>
+              </div>
+
+              {/* Informe de Inactividad Section */}
+              <div className="pt-2 border-t border-slate-100">
+                <div className="bg-red-50/60 p-4 rounded-2xl border border-red-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-600" />
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wide">Reporte de Inactividad</span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 font-medium mt-1">
+                      Genera un PDF con los equipos en taller cuyo último avance sea mayor o igual a 7 días.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    id="btn-informe-inactividad"
+                    onClick={() => generateInactivityReportPDF(entries, equipment)}
+                    className="shrink-0 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-sm shadow-red-950/10 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Informe de Inactividad</span>
+                  </button>
+                </div>
               </div>
 
               {/* PDF Settings Collapsible Toggle */}
