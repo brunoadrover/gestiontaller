@@ -5,6 +5,7 @@ export interface Equipment {
   marca: string;
   modelo: string;
   horas: number;
+  year?: number | null;
   valor_nuevo: number;
   demerito: number;
   comentario_general?: string;

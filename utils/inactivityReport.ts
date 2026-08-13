@@ -57,6 +57,7 @@ export interface InactivityRecord {
   marca: string;
   modelo: string;
   horas: string;
+  año: string;
   taller: string;
   fechaIngreso: string;
   estadiaTotal: number;
@@ -117,6 +118,7 @@ export const generateInactivityReportPDF = (
         marca: eq?.marca || 'N/D',
         modelo: eq?.modelo || 'N/D',
         horas: eq?.horas !== undefined && eq?.horas !== null ? `${eq.horas.toLocaleString('es-AR')}` : 'N/D',
+        año: eq?.year ? String(eq.year) : 'N/D',
         taller,
         fechaIngreso: formatDateDisplay(entry.fecha_ingreso),
         estadiaTotal,
@@ -223,6 +225,7 @@ export const generateInactivityReportPDF = (
       { header: 'Marca', dataKey: 'marca' },
       { header: 'Modelo', dataKey: 'modelo' },
       { header: 'Hs/Km', dataKey: 'horas' },
+      { header: 'Año', dataKey: 'año' },
       { header: 'Taller', dataKey: 'taller' },
       { header: 'Ingreso', dataKey: 'fechaIngreso' },
       { header: 'Estadía', dataKey: 'estadiaTotal' },
@@ -238,6 +241,7 @@ export const generateInactivityReportPDF = (
       marca: r.marca,
       modelo: r.modelo,
       horas: r.horas,
+      año: r.año,
       taller: r.taller,
       fechaIngreso: r.fechaIngreso,
       estadiaTotal: `${r.estadiaTotal} d.`,
@@ -270,15 +274,16 @@ export const generateInactivityReportPDF = (
         interno: { cellWidth: 16, fontStyle: 'bold', halign: 'center' },
         marca: { cellWidth: 18 },
         modelo: { cellWidth: 18 },
-        horas: { cellWidth: 16, halign: 'right' },
+        horas: { cellWidth: 15, halign: 'right' },
+        año: { cellWidth: 12, halign: 'center' },
         taller: { cellWidth: 22 },
         fechaIngreso: { cellWidth: 16, halign: 'center' },
-        estadiaTotal: { cellWidth: 15, halign: 'center' },
+        estadiaTotal: { cellWidth: 14, halign: 'center' },
         perdidaFacturacion: { cellWidth: 22, halign: 'right', fontStyle: 'bold', textColor: [185, 28, 28] },
-        ultimoAvanceDesc: { cellWidth: 62 },
+        ultimoAvanceDesc: { cellWidth: 52 },
         mecanico: { cellWidth: 22 },
         fechaUltimoAvance: { cellWidth: 16, halign: 'center' },
-        diasAvance: { cellWidth: 16, halign: 'center', fontStyle: 'bold', textColor: [220, 38, 38] }
+        diasAvance: { cellWidth: 15, halign: 'center', fontStyle: 'bold', textColor: [220, 38, 38] }
       },
       margin: { left: 14, right: 14 },
       didDrawPage: (data) => {

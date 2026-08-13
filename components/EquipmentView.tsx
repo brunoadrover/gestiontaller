@@ -25,6 +25,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
     marca: '',
     modelo: '',
     horas: 0,
+    year: undefined,
     valor_nuevo: 0,
     demerito: 0.8,
     comentario_general: ''
@@ -46,6 +47,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
       normalizeText(e.marca).includes(term) ||
       normalizeText(e.modelo).includes(term) ||
       normalizeText(e.tipo).includes(term) ||
+      normalizeText(e.year).includes(term) ||
       normalizeText(e.comentario_general).includes(term)
     );
   }, [equipment, appliedFilter]);
@@ -87,6 +89,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
         marca: newEq.marca.trim(),
         modelo: newEq.modelo.trim(),
         horas: Number(newEq.horas),
+        year: newEq.year ? Number(newEq.year) : null,
         valor_nuevo: Number(newEq.valor_nuevo),
         demerito: Number(newEq.demerito),
         comentario_general: newEq.comentario_general?.trim() || null
@@ -99,7 +102,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
       }
 
       await refreshData();
-      setNewEq({ id: '', tipo: '', marca: '', modelo: '', horas: 0, valor_nuevo: 0, demerito: 0.8, comentario_general: '' });
+      setNewEq({ id: '', tipo: '', marca: '', modelo: '', horas: 0, year: undefined, valor_nuevo: 0, demerito: 0.8, comentario_general: '' });
       setIsAdding(false);
       alert("Equipo guardado exitosamente.");
     } catch (e: any) {
@@ -204,7 +207,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
 
       {isAdding && (
         <div className="bg-white border-2 border-green-600 p-6 rounded-xl space-y-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
-          <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-4 items-end">
             <div>
               <label className="block text-[10px] font-normal text-slate-600 mb-1 uppercase tracking-widest">Interno</label>
               <input type="text" value={newEq.id} onChange={e => setNewEq({...newEq, id: e.target.value.toUpperCase()})} className={inputClass + " uppercase font-normal"} placeholder="E-0000" />
@@ -223,6 +226,10 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
             <div>
               <label className="block text-[10px] font-normal text-slate-600 mb-1 uppercase tracking-widest">Hs / Arrastre</label>
               <input type="number" value={newEq.horas} onChange={e => setNewEq({...newEq, horas: parseInt(e.target.value) || 0})} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-normal text-slate-600 mb-1 uppercase tracking-widest">Año Fab.</label>
+              <input type="number" value={newEq.year || ''} onChange={e => setNewEq({...newEq, year: parseInt(e.target.value) || undefined})} className={inputClass} placeholder="Ej: 2022" />
             </div>
             <div>
               <label className="block text-[10px] font-normal text-slate-600 mb-1 uppercase tracking-widest">Valor Nuevo (USD)</label>
@@ -257,6 +264,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
                 <th className="px-6 py-4">Tipo</th>
                 <th className="px-6 py-4">Marca / Modelo</th>
                 <th className="px-6 py-4 text-right">Hs</th>
+                <th className="px-6 py-4 text-center">Año</th>
                 <th className="px-6 py-4 text-right">Valor</th>
                 <th className="px-6 py-4 text-center">Dem..</th>
                 <th className="px-6 py-4">Observaciones</th>
@@ -295,6 +303,9 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
                       <td className="px-6 py-4 text-right">
                         {isEditing ? <input type="number" value={editData?.horas || 0} onChange={e => setEditData(p => p ? {...p, horas: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-900 font-normal">{eq.horas.toLocaleString()}</span>}
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        {isEditing ? <input type="number" value={editData?.year || ''} onChange={e => setEditData(p => p ? {...p, year: parseInt(e.target.value) || null} : null)} className={inlineInputClass + " text-center"} placeholder="Año"/> : <span className="tabular-nums text-slate-700 font-normal">{eq.year || '-'}</span>}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         {isEditing ? <input type="number" value={editData?.valor_nuevo || 0} onChange={e => setEditData(p => p ? {...p, valor_nuevo: parseInt(e.target.value) || 0} : null)} className={inlineInputClass + " text-right"}/> : <span className="tabular-nums text-slate-700 font-normal">${(eq.valor_nuevo || 0).toLocaleString()}</span>}
                       </td>
@@ -324,7 +335,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({ equipment, refreshData })
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-6 py-10 text-center text-slate-400 italic">
+                  <td colSpan={9} className="px-6 py-10 text-center text-slate-400 italic">
                     {appliedFilter ? "No se encontraron equipos con ese criterio." : "Utilice el buscador para encontrar un equipo."}
                   </td>
                 </tr>

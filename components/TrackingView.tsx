@@ -616,7 +616,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       
       const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
       
-      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'}`;
+      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | AÑO: ${eq?.year || 'N/D'} | Hs/Km de arrastre: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
       doc.text(headerText, 18, startY + 7);
 
       // Goal display in PDF header
@@ -1325,6 +1325,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                         <div className="font-bold text-slate-800 leading-tight">{eq?.marca || 'N/A'} {eq?.modelo || ''}</div>
                         <div className="text-[9px] text-slate-400 uppercase font-black">{eq?.tipo || 'Desconocido'}</div>
                         <div className="text-[10px] text-slate-600 mt-1">Hs/Km de arrastre: {eq?.horas?.toLocaleString('de-DE') || '0'}</div>
+                        <div className="text-[10px] text-slate-600">Año: {eq?.year || 'N/D'}</div>
                       </td>
                       <td className="px-4 py-4 border-r border-slate-200">
                         {isEditingEntry ? <input type="text" value={editEntryData.obra_asignada} onChange={e => setEditEntryData({...editEntryData, obra_asignada: e.target.value})} className={editInputClass} /> : <div className="font-bold text-slate-600">{entry.obra_asignada || 'N/A'}</div>}

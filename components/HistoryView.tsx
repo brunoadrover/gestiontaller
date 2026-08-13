@@ -421,7 +421,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       const statusLabel = 'OPERATIVO';
       const estSalida = entry.fecha_salida ? formatDateDisplay(entry.fecha_salida) : 'N/A';
       
-      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | OBRA: ${entry.obra_asignada || 'N/A'} | SALIDA REAL: ${formatDateDisplay(getWorkshopStatus(entry).endDate || '')}`;
+      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | AÑO: ${eq?.year || 'N/D'} | Hs/Km de arrastre: ${eq?.horas?.toLocaleString('de-DE') || '0'} | SALIDA REAL: ${formatDateDisplay(getWorkshopStatus(entry).endDate || '')}`;
       doc.text(headerText, 18, startY + 7);
 
       // Goal display in PDF header
@@ -583,9 +583,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
 
     doc.setFont('helvetica', 'normal');
-    doc.text(`Hs Arrastre:`, 140, startY + 14);
+    doc.text(`Hs Arrastre:`, 130, startY + 14);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 160, startY + 14);
+    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 150, startY + 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Año:`, 172, startY + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${eq?.year || 'N/D'}`, 182, startY + 14);
 
     doc.setFont('helvetica', 'normal');
     doc.text(`Obra:`, 18, startY + 22);
@@ -698,6 +703,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             interno: entry.equipo_id,
             marcaModelo: `${eq?.marca || ''} ${eq?.modelo || ''}`.trim(),
             uso: eq?.horas || 0,
+            year: eq?.year ? String(eq.year) : 'N/D',
             fechaOperativo: entry.fecha_salida,
             billing: billing,
             totalDays: totalDays,
@@ -793,6 +799,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           e.interno,
           e.marcaModelo,
           e.uso,
+          e.year,
           e.fechaOperativo,
           e.totalDays,
           e.repairDays,
@@ -803,23 +810,24 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
 
         autoTable(doc, {
           startY: startY + 8,
-          head: [['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']],
+          head: [['Interno', 'Marca y Modelo', 'Hs/Km', 'Año', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']],
           body: tableBody,
-          foot: [['SUBTOTAL TALLER', '', '', '', '', '', '', '', formatCurrencyAbbr(wData.billing)]],
+          foot: [['SUBTOTAL TALLER', '', '', '', '', '', '', '', '', formatCurrencyAbbr(wData.billing)]],
           theme: 'grid',
           headStyles: { fillColor: [30, 41, 59], fontSize: 7, fontStyle: 'bold' },
           footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontSize: 7, fontStyle: 'bold' },
           styles: { fontSize: 6.5, cellPadding: 1.5 },
           columnStyles: {
-            0: { fontStyle: 'bold', cellWidth: 25 },
+            0: { fontStyle: 'bold', cellWidth: 22 },
             1: { cellWidth: 'auto' },
             2: { halign: 'center', cellWidth: 15 },
-            3: { halign: 'center', cellWidth: 25 },
-            4: { halign: 'center', cellWidth: 15 },
-            5: { halign: 'center', cellWidth: 12 },
+            3: { halign: 'center', cellWidth: 12 },
+            4: { halign: 'center', cellWidth: 22 },
+            5: { halign: 'center', cellWidth: 14 },
             6: { halign: 'center', cellWidth: 12 },
             7: { halign: 'center', cellWidth: 12 },
-            8: { halign: 'right', cellWidth: 35 }
+            8: { halign: 'center', cellWidth: 12 },
+            9: { halign: 'right', cellWidth: 32 }
           }
         });
 
@@ -967,13 +975,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
         if (wData.entries.length === 0) return;
 
         data.push([workshopLabels[wKey]]);
-        data.push(['Interno', 'Marca y Modelo', 'Hs/Km', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']);
+        data.push(['Interno', 'Marca y Modelo', 'Hs/Km', 'Año', 'Fecha Operativo', 'Estadía', 'Repar.', 'Repue.', 'Prueb.', 'Facturación Disp.']);
         
         wData.entries.forEach((e: any) => {
           data.push([
             e.interno,
             e.marcaModelo,
             e.uso,
+            e.year,
             e.fechaOperativo,
             e.totalDays,
             e.repairDays,
@@ -983,11 +992,11 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           ]);
         });
         
-        data.push(['SUBTOTAL TALLER', '', '', '', '', '', '', '', wData.billing]);
+        data.push(['SUBTOTAL TALLER', '', '', '', '', '', '', '', '', wData.billing]);
         data.push([]);
       });
 
-      data.push([`TOTAL MES ${monthData.label}`, '', '', '', '', '', '', '', monthData.monthTotalBilling]);
+      data.push([`TOTAL MES ${monthData.label}`, '', '', '', '', '', '', '', '', monthData.monthTotalBilling]);
       data.push([]);
       data.push([]);
     });
