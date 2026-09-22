@@ -32,6 +32,7 @@ export const getWorkshopName = (equipo_id: string, eq?: Equipment | null) => {
   const id = (equipo_id || '').toUpperCase();
   const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
   
+  if (id.startsWith('X')) return 'Taller Contenedores';
   if (id.startsWith('E')) return 'Taller Pesados';
   if (id.startsWith('V')) {
     if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo')) {

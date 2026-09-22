@@ -201,7 +201,7 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'testing' | 'operative'>('all');
-  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos'>('all');
+  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores'>('all');
   const [showStalledOnly, setShowStalledOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -478,6 +478,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const id = entry.equipo_id.toUpperCase();
     const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
     
+    if (id.startsWith('X')) return 'contenedores';
     if (id.startsWith('E')) return 'pesados';
     if (id.startsWith('V')) {
       if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo')) {
@@ -1123,9 +1124,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
               onChange={(e) => setWorkshopFilter(e.target.value as any)}
             >
               <option value="all">TODOS LOS TALLERES</option>
-              <option value="pesados">TALLER PESADOS</option>
-              <option value="camiones">TALLER CAMIONES</option>
-              <option value="livianos">TALLER LIVIANOS</option>
+              <option value="pesados">TALLER PESADOS (E)</option>
+              <option value="camiones">TALLER CAMIONES (V)</option>
+              <option value="livianos">TALLER LIVIANOS (V)</option>
+              <option value="contenedores">TALLER CONTENEDORES (X)</option>
             </select>
           </div>
 
