@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [formConfigVisible, setFormConfigVisible] = useState(true);
   const [formConfigTitulo, setFormConfigTitulo] = useState('PLANIFICACION DE JORNADA EXTRAORDINARIA');
   const [formConfigSugerencia, setFormConfigSugerencia] = useState('');
+  const [formConfigPermitirEdicionFechaOperativo, setFormConfigPermitirEdicionFechaOperativo] = useState(false);
 
   // Función para obtener TODOS los registros saltando el límite de 1000 de Supabase
   const fetchAllFromTable = async (tableName: string) => {
@@ -94,21 +95,27 @@ const App: React.FC = () => {
 
   const fetchConfig = async () => {
     try {
+      const localOperativeEdit = localStorage.getItem('config_edicion_fecha_operativo') === 'true';
       const { data, error } = await supabase.from('configuracion').select('*');
       if (error) throw error;
       if (data && data.length > 0) {
         const c = data[0];
-        setConfig(c);
+        setConfig({
+          ...c,
+          permitir_edicion_fecha_operativo: c.permitir_edicion_fecha_operativo !== undefined ? c.permitir_edicion_fecha_operativo : localOperativeEdit
+        });
         setFormConfigVisible(c.visible !== false); // default to true if undefined
         setFormConfigTitulo(c.titulo || 'PLANIFICACION DE JORNADA EXTRAORDINARIA');
         setFormConfigSugerencia(c.sugerencia || '');
+        setFormConfigPermitirEdicionFechaOperativo(c.permitir_edicion_fecha_operativo !== undefined ? c.permitir_edicion_fecha_operativo : localOperativeEdit);
       } else {
         // Try to insert a default configurations row with a static UUID key
         const defaultConf = {
           id: '00000000-0000-0000-0000-000000000001',
           visible: true,
           titulo: 'PLANIFICACION DE JORNADA EXTRAORDINARIA',
-          sugerencia: ''
+          sugerencia: '',
+          permitir_edicion_fecha_operativo: localOperativeEdit
         };
         const { data: inserted, error: insertError } = await supabase
           .from('configuracion')
@@ -121,38 +128,71 @@ const App: React.FC = () => {
           setFormConfigVisible(c.visible);
           setFormConfigTitulo(c.titulo);
           setFormConfigSugerencia(c.sugerencia);
+          setFormConfigPermitirEdicionFechaOperativo(c.permitir_edicion_fecha_operativo ?? localOperativeEdit);
         } else {
           // Local fallback
-          setConfig({ id: '00000000-0000-0000-0000-000000000001', visible: true, titulo: 'PLANIFICACION DE JORNADA EXTRAORDINARIA', sugerencia: '' });
+          setConfig({ id: '00000000-0000-0000-0000-000000000001', visible: true, titulo: 'PLANIFICACION DE JORNADA EXTRAORDINARIA', sugerencia: '', permitir_edicion_fecha_operativo: localOperativeEdit });
+          setFormConfigPermitirEdicionFechaOperativo(localOperativeEdit);
         }
       }
     } catch (err) {
       console.error("Error reading config table:", err);
-      setConfig({ id: '00000000-0000-0000-0000-000000000001', visible: true, titulo: 'PLANIFICACION DE JORNADA EXTRAORDINARIA', sugerencia: '' });
+      const localOperativeEdit = localStorage.getItem('config_edicion_fecha_operativo') === 'true';
+      setConfig({ id: '00000000-0000-0000-0000-000000000001', visible: true, titulo: 'PLANIFICACION DE JORNADA EXTRAORDINARIA', sugerencia: '', permitir_edicion_fecha_operativo: localOperativeEdit });
+      setFormConfigPermitirEdicionFechaOperativo(localOperativeEdit);
     }
   };
 
   const handleSaveConfig = async () => {
     setIsSavingConfig(true);
     try {
+      localStorage.setItem('config_edicion_fecha_operativo', String(formConfigPermitirEdicionFechaOperativo));
+
       const payload: any = {
         id: config?.id || '00000000-0000-0000-0000-000000000001',
         visible: formConfigVisible,
         titulo: formConfigTitulo.trim(),
-        sugerencia: formConfigSugerencia.trim()
+        sugerencia: formConfigSugerencia.trim(),
+        permitir_edicion_fecha_operativo: formConfigPermitirEdicionFechaOperativo
       };
 
-      const { data, error } = await supabase
-        .from('configuracion')
-        .upsert(payload)
-        .select();
+      try {
+        const { data, error } = await supabase
+          .from('configuracion')
+          .upsert(payload)
+          .select();
 
-      if (error) throw error;
+        if (error) {
+          // In case column does not exist on Supabase table
+          const { data: retryData } = await supabase
+            .from('configuracion')
+            .upsert({
+              id: payload.id,
+              visible: payload.visible,
+              titulo: payload.titulo,
+              sugerencia: payload.sugerencia
+            })
+            .select();
 
-      if (data && data.length > 0) {
-        setConfig(data[0]);
-      } else {
-        await fetchConfig();
+          setConfig({
+            ...(retryData && retryData.length > 0 ? retryData[0] : config || {}),
+            visible: formConfigVisible,
+            titulo: formConfigTitulo.trim(),
+            sugerencia: formConfigSugerencia.trim(),
+            permitir_edicion_fecha_operativo: formConfigPermitirEdicionFechaOperativo
+          });
+        } else if (data && data.length > 0) {
+          setConfig(data[0]);
+        }
+      } catch (upsertErr) {
+        console.warn("Config upsert fallback:", upsertErr);
+        setConfig((prev: any) => ({
+          ...prev,
+          visible: formConfigVisible,
+          titulo: formConfigTitulo.trim(),
+          sugerencia: formConfigSugerencia.trim(),
+          permitir_edicion_fecha_operativo: formConfigPermitirEdicionFechaOperativo
+        }));
       }
 
       // If hidden and active view was overtime, redirect to tracking view
@@ -197,7 +237,14 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (activeView) {
       case 'tracking':
-        return <TrackingView entries={entries} refreshData={fetchData} equipment={equipment} />;
+        return (
+          <TrackingView 
+            entries={entries} 
+            refreshData={fetchData} 
+            equipment={equipment} 
+            allowOperativeDateEdit={config?.permitir_edicion_fecha_operativo ?? (localStorage.getItem('config_edicion_fecha_operativo') === 'true')}
+          />
+        );
       case 'history':
         return <HistoryView entries={entries} refreshData={fetchData} equipment={equipment} />;
       case 'equipment':
@@ -207,7 +254,14 @@ const App: React.FC = () => {
       case 'overtime':
         return <OvertimeView customTitle={config?.titulo} customSugerencia={config?.sugerencia} />;
       default:
-        return <TrackingView entries={entries} refreshData={fetchData} equipment={equipment} />;
+        return (
+          <TrackingView 
+            entries={entries} 
+            refreshData={fetchData} 
+            equipment={equipment} 
+            allowOperativeDateEdit={config?.permitir_edicion_fecha_operativo ?? (localStorage.getItem('config_edicion_fecha_operativo') === 'true')}
+          />
+        );
     }
   };
 
@@ -268,9 +322,11 @@ const App: React.FC = () => {
             </nav>
             <button 
               onClick={() => {
+                const localOperativeEdit = localStorage.getItem('config_edicion_fecha_operativo') === 'true';
                 setFormConfigVisible(config?.visible !== false);
                 setFormConfigTitulo(config?.titulo || 'PLANIFICACION DE JORNADA EXTRAORDINARIA');
                 setFormConfigSugerencia(config?.sugerencia || '');
+                setFormConfigPermitirEdicionFechaOperativo(config?.permitir_edicion_fecha_operativo ?? localOperativeEdit);
                 setShowPdfSettings(false);
                 setShowSettingsModal(true);
               }}
@@ -357,6 +413,24 @@ const App: React.FC = () => {
                     className="sr-only peer" 
                     checked={formConfigVisible}
                     onChange={(e) => setFormConfigVisible(e.target.checked)}
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008000]"></div>
+                </label>
+              </div>
+
+              {/* Edición de Fecha de Operativo Toggle */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div className="pr-3">
+                  <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Edición Fecha de Operativo</p>
+                  <p className="text-[10.5px] text-slate-400 font-medium mt-0.5">Habilita una ventana emergente para poder editar la fecha de salida (con clave de autorización) al pasar un equipo a Operativo.</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input 
+                    type="checkbox" 
+                    id="checkbox-config-edicion-operativo"
+                    className="sr-only peer" 
+                    checked={formConfigPermitirEdicionFechaOperativo}
+                    onChange={(e) => setFormConfigPermitirEdicionFechaOperativo(e.target.checked)}
                   />
                   <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008000]"></div>
                 </label>

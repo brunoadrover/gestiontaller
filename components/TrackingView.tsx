@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, ShoppingCart, CheckCircle2 } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -19,6 +19,7 @@ interface TrackingViewProps {
   entries: MaintenanceEntry[];
   refreshData: () => Promise<void>;
   equipment: Equipment[];
+  allowOperativeDateEdit?: boolean;
 }
 
 const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
@@ -198,7 +199,7 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
   );
 };
 
-const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment }) => {
+const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment, allowOperativeDateEdit = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'testing' | 'operative'>('all');
   const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores'>('all');
@@ -207,6 +208,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
+  // States for Operative Date Edit Modal
+  const [showOperativeModal, setShowOperativeModal] = useState(false);
+  const [operativeModalEntry, setOperativeModalEntry] = useState<MaintenanceEntry | null>(null);
+  const [operativeExitDate, setOperativeExitDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
+  const [operativeAuthKey, setOperativeAuthKey] = useState<string>('');
+  const [isDateUnlocked, setIsDateUnlocked] = useState(false);
+  const [operativeError, setOperativeError] = useState<string | null>(null);
+
   // States for Technical Report Modal
   const [showReportModal, setShowReportModal] = useState(false);
   const [currentReportEntry, setCurrentReportEntry] = useState<MaintenanceEntry | null>(null);
@@ -408,11 +417,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     };
   };
 
-  const handleStatusChange = async (entry: MaintenanceEntry, newStatus: string) => {
+  const handleStatusChange = async (entry: MaintenanceEntry, newStatus: string, customExitDate?: string) => {
     setIsProcessing(true);
     try {
       const currentStatus = entry.estado || 'REPARACION';
-      if (currentStatus === newStatus) return;
+      if (currentStatus === newStatus && newStatus !== 'OPERATIVO') return;
 
       const actions = entry.acciones_taller || [];
       const sortedActions = [...actions].sort((a, b) => a.fecha_accion.localeCompare(b.fecha_accion) || a.id.localeCompare(b.id));
@@ -423,21 +432,23 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         a.descripcion === 'Sincronización diaria de estadía'
       );
       
+      const exitDateToUse = (newStatus === 'OPERATIVO' && customExitDate) ? customExitDate : today;
+      const effectiveDateForCalc = newStatus === 'OPERATIVO' ? exitDateToUse : today;
       const lastChangeDate = lastCheckpointAction ? lastCheckpointAction.fecha_accion : entry.fecha_ingreso;
-      const daysDiff = getDiffDays(lastChangeDate, today);
+      const daysDiff = Math.max(0, getDiffDays(lastChangeDate, effectiveDateForCalc));
 
       const updates: any = { estado: newStatus };
       
       if (currentStatus === 'REPARACION') {
-        updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysDiff;
+        updates.estadia_reparacion = Math.max(0, Number(entry.estadia_reparacion || 0) + daysDiff);
       } else if (currentStatus === 'COMPRAS') {
-        updates.estadia_compras = Number(entry.estadia_compras || 0) + daysDiff;
+        updates.estadia_compras = Math.max(0, Number(entry.estadia_compras || 0) + daysDiff);
       } else if (currentStatus === 'PRUEBA') {
-        updates.estadia_prueba = Number(entry.estadia_prueba || 0) + daysDiff;
+        updates.estadia_prueba = Math.max(0, Number(entry.estadia_prueba || 0) + daysDiff);
       }
 
       if (newStatus === 'OPERATIVO') {
-        updates.fecha_salida = today;
+        updates.fecha_salida = exitDateToUse;
       }
 
       const { error: updateError } = await supabase
@@ -459,7 +470,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         .insert([{
           ingreso_id: entry.id,
           descripcion: `Cambio de estado a: ${statusLabels[newStatus]}`,
-          fecha_accion: today,
+          fecha_accion: exitDateToUse,
           responsable: 'Sistema'
         }]);
 
@@ -471,6 +482,51 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleOperativeClick = (entry: MaintenanceEntry) => {
+    if (allowOperativeDateEdit) {
+      setOperativeModalEntry(entry);
+      setOperativeExitDate(today);
+      setOperativeAuthKey('');
+      setIsDateUnlocked(false);
+      setOperativeError(null);
+      setShowOperativeModal(true);
+    } else {
+      handleStatusChange(entry, 'OPERATIVO', today);
+    }
+  };
+
+  const handleValidateKey = () => {
+    if (operativeAuthKey.trim() === '124') {
+      setIsDateUnlocked(true);
+      setOperativeError(null);
+    } else {
+      setIsDateUnlocked(false);
+      setOperativeError('Clave incorrecta. No se pudo desbloquear la fecha.');
+    }
+  };
+
+  const handleConfirmOperative = async () => {
+    if (!operativeModalEntry) return;
+
+    const isDateModified = operativeExitDate !== today;
+    const isAuthorized = isDateUnlocked || operativeAuthKey.trim() === '124';
+
+    if (isDateModified && !isAuthorized) {
+      setOperativeError('Para modificar la fecha de salida debe ingresar y validar la clave de autorización.');
+      return;
+    }
+
+    const targetEntry = operativeModalEntry;
+    const chosenExitDate = operativeExitDate || today;
+
+    setShowOperativeModal(false);
+    setOperativeModalEntry(null);
+    setIsDateUnlocked(false);
+    setOperativeError(null);
+
+    await handleStatusChange(targetEntry, 'OPERATIVO', chosenExitDate);
   };
 
   const getWorkshopType = (entry: MaintenanceEntry) => {
@@ -1481,7 +1537,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                 </button>
 
                                 <button 
-                                  onClick={() => handleStatusChange(entry, 'OPERATIVO')}
+                                  onClick={() => handleOperativeClick(entry)}
                                   disabled={isProcessing}
                                   className={`p-1.5 rounded-full transition-all flex items-center gap-1.5 px-3 text-slate-400 hover:text-green-600 hover:bg-green-50`}
                                   title="Operativo"
@@ -1573,6 +1629,185 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                   {isProcessing ? 'Guardando...' : 'Guardar Informe'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Editar Fecha al pasar a Operativo */}
+      {showOperativeModal && operativeModalEntry && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full border border-slate-200 shadow-2xl animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 text-green-700 rounded-2xl flex items-center justify-center shadow-inner">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Pase a Operativo</h3>
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Interno: <span className="text-slate-700">{operativeModalEntry.equipo_id}</span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowOperativeModal(false);
+                  setOperativeModalEntry(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Info equipo */}
+            {(() => {
+              const eq = equipment.find(e => e.id === operativeModalEntry.equipo_id);
+              return (
+                <div className="my-4 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
+                  <div className="font-bold text-slate-800">{eq?.marca || ''} {eq?.modelo || ''}</div>
+                  <div className="text-[10px] text-slate-500 font-semibold uppercase">{eq?.tipo || 'Equipo'} • Ingreso: {formatDateDisplay(operativeModalEntry.fecha_ingreso)}</div>
+                </div>
+              );
+            })()}
+
+            {/* Body */}
+            <div className="space-y-4">
+              {/* Clave de Autorización */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-slate-400" />
+                    Clave de Autorización
+                  </label>
+                  {isDateUnlocked ? (
+                    <span className="text-[9.5px] font-black text-green-600 uppercase flex items-center gap-1 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                      <Unlock className="w-3 h-3" /> Desbloqueado
+                    </span>
+                  ) : (
+                    <span className="text-[9.5px] font-bold text-slate-400 uppercase flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                      <Lock className="w-3 h-3" /> Bloqueado
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={operativeAuthKey}
+                    onChange={(e) => {
+                      setOperativeAuthKey(e.target.value);
+                      if (operativeError) setOperativeError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleValidateKey();
+                      }
+                    }}
+                    placeholder="Ingrese clave de autorización"
+                    className={`flex-1 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all outline-none ${
+                      isDateUnlocked
+                        ? 'border-green-500 ring-2 ring-green-100 bg-green-50/20 text-slate-900'
+                        : 'border-slate-200 bg-white text-slate-800 focus:border-slate-400'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleValidateKey}
+                    className={`px-3.5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm ${
+                      isDateUnlocked
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-slate-800 hover:bg-slate-900 text-white cursor-pointer'
+                    }`}
+                  >
+                    {isDateUnlocked ? (
+                      <>
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>Desbloqueado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Key className="w-3.5 h-3.5" />
+                        <span>Desbloquear</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 italic">
+                  * Ingrese la clave y presione <strong>Desbloquear</strong> para habilitar la edición de la fecha de salida. Por defecto se asigna la fecha actual.
+                </p>
+              </div>
+
+              {/* Fecha de Salida */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  Fecha de Salida (Operativo)
+                </label>
+                <div className="relative">
+                  <input 
+                    type="date"
+                    disabled={!isDateUnlocked}
+                    value={operativeExitDate}
+                    onChange={(e) => {
+                      setOperativeExitDate(e.target.value);
+                      if (operativeError) setOperativeError(null);
+                    }}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-xs font-bold transition-all outline-none ${
+                      isDateUnlocked
+                        ? 'border-green-500 bg-white text-slate-900 focus:ring-2 focus:ring-green-200 cursor-pointer shadow-sm'
+                        : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed select-none'
+                    }`}
+                  />
+                  {!isDateUnlocked && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" title="Bloqueado. Ingrese clave de autorización para editar">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {operativeError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{operativeError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+              <button 
+                type="button"
+                onClick={() => {
+                  setShowOperativeModal(false);
+                  setOperativeModalEntry(null);
+                }}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs uppercase tracking-wider transition-all"
+                disabled={isProcessing}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button"
+                onClick={handleConfirmOperative}
+                disabled={isProcessing}
+                className="flex-1 py-3 bg-[#008000] hover:bg-green-700 text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-950/20 disabled:bg-slate-300"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Pasar a Operativo</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

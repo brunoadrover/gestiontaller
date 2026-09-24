@@ -58,4 +58,5 @@ export interface Configuracion {
   visible: boolean;
   titulo: string;
   sugerencia: string;
+  permitir_edicion_fecha_operativo?: boolean;
 }
