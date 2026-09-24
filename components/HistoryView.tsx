@@ -305,8 +305,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     const partsDays = Number(entry.estadia_compras || 0);
     const testingDays = Number(entry.estadia_prueba || 0);
 
-    const totalDays = repairDays + partsDays + testingDays;
     const endDateStr = isOperative ? (entry.fecha_salida || today) : today;
+    const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
     return { 
       isOperative, isWaitingParts, isTesting, isInRepair, 
