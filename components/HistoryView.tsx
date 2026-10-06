@@ -183,7 +183,7 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
 
 const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores'>('all');
+  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores' | 'alquilados'>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -325,11 +325,14 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
 
   const getWorkshopType = (entry: MaintenanceEntry) => {
     const eq = equipment.find(e => e.id === entry.equipo_id);
-    const id = entry.equipo_id.toUpperCase();
+    const id = entry.equipo_id.toUpperCase().trim();
     const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
     
     if (id.startsWith('X')) return 'contenedores';
     if (id.startsWith('E')) return 'pesados';
+    if (id.startsWith('A')) return 'camiones';
+    if (id.startsWith('G')) return 'livianos';
+    if (id.startsWith('Q')) return 'alquilados';
     if (id.startsWith('V')) {
       if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo') || desc.includes('bus')) {
         return 'camiones';
@@ -394,7 +397,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       pesados: 'Pesados',
       camiones: 'Camiones',
       livianos: 'Livianos',
-      contenedores: 'Contenedores'
+      contenedores: 'Contenedores',
+      alquilados: 'Equipos Alquilados'
     };
     let filterText = `Taller: ${workshopMap[workshopFilter] || (workshopFilter.charAt(0).toUpperCase() + workshopFilter.slice(1))}`;
     if (searchTerm) filterText += ` | Búsqueda: "${searchTerm}"`;
@@ -679,21 +683,28 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             pesados: { entries: [], billing: 0 },
             camiones: { entries: [], billing: 0 },
             livianos: { entries: [], billing: 0 },
-            contenedores: { entries: [], billing: 0 }
+            contenedores: { entries: [], billing: 0 },
+            alquilados: { entries: [], billing: 0 }
           },
           monthTotalBilling: 0
         };
       }
 
       const eq = equipment.find(e => e.id === entry.equipo_id);
-      const id = entry.equipo_id.toUpperCase();
+      const id = entry.equipo_id.toUpperCase().trim();
       const type = (eq?.tipo || '').toLowerCase();
       
-      let workshopKey: 'pesados' | 'camiones' | 'livianos' | 'contenedores' | null = null;
+      let workshopKey: 'pesados' | 'camiones' | 'livianos' | 'contenedores' | 'alquilados' | null = null;
       if (id.startsWith('X')) {
         workshopKey = 'contenedores';
       } else if (id.startsWith('E')) {
         workshopKey = 'pesados';
+      } else if (id.startsWith('A')) {
+        workshopKey = 'camiones';
+      } else if (id.startsWith('G')) {
+        workshopKey = 'livianos';
+      } else if (id.startsWith('Q')) {
+        workshopKey = 'alquilados';
       } else if (id.startsWith('V')) {
         if (type.includes('camión') || type.includes('camion') || type.includes('bus') || type.includes('colectivo')) {
           workshopKey = 'camiones';
@@ -767,7 +778,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       pesados: 'Taller Pesados',
       camiones: 'Taller Camiones',
       livianos: 'Taller Livianos',
-      contenedores: 'Taller Contenedores'
+      contenedores: 'Taller Contenedores',
+      alquilados: 'Equipos Alquilados'
     };
 
     sortedMonthKeys.forEach((key, index) => {
@@ -787,7 +799,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       doc.text(monthData.label, 14, startY + 5);
       startY += 10;
 
-      (['pesados', 'camiones', 'livianos', 'contenedores'] as const).forEach(wKey => {
+      (['pesados', 'camiones', 'livianos', 'contenedores', 'alquilados'] as const).forEach(wKey => {
         const wData = monthData.workshops[wKey];
         if (wData.entries.length === 0) return;
 
@@ -983,7 +995,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
       data.push([monthData.label]);
       data.push([]);
 
-      (['pesados', 'camiones', 'livianos', 'contenedores'] as const).forEach(wKey => {
+      (['pesados', 'camiones', 'livianos', 'contenedores', 'alquilados'] as const).forEach(wKey => {
         const wData = monthData.workshops[wKey];
         if (wData.entries.length === 0) return;
 
@@ -1216,11 +1228,12 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             value={workshopFilter}
             onChange={(e: any) => setWorkshopFilter(e.target.value)}
           >
-            <option value="all">Todos los Talleres</option>
-            <option value="pesados">Taller Pesados (E)</option>
-            <option value="camiones">Taller Camiones (V)</option>
-            <option value="livianos">Taller Livianos (V)</option>
-            <option value="contenedores">Taller Contenedores (X)</option>
+            <option value="all">TODOS LOS TALLERES</option>
+            <option value="pesados">TALLER PESADOS (E)</option>
+            <option value="camiones">TALLER CAMIONES (A/V)</option>
+            <option value="livianos">TALLER LIVIANOS (G/V)</option>
+            <option value="contenedores">TALLER CONTENEDORES (X)</option>
+            <option value="alquilados">EQUIPOS ALQUILADOS (Q)</option>
           </select>
           <button 
             onClick={handleExportManagementSummary}

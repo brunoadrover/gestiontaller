@@ -29,13 +29,16 @@ export const formatCurrency = (val: number) => {
 };
 
 export const getWorkshopName = (equipo_id: string, eq?: Equipment | null) => {
-  const id = (equipo_id || '').toUpperCase();
+  const id = (equipo_id || '').toUpperCase().trim();
   const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
   
   if (id.startsWith('X')) return 'Taller Contenedores';
   if (id.startsWith('E')) return 'Taller Pesados';
+  if (id.startsWith('A')) return 'Taller Camiones';
+  if (id.startsWith('G')) return 'Taller Livianos';
+  if (id.startsWith('Q')) return 'Equipos Alquilados';
   if (id.startsWith('V')) {
-    if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo')) {
+    if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo') || desc.includes('bus')) {
       return 'Taller Camiones';
     }
     return 'Taller Livianos';

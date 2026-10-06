@@ -202,7 +202,7 @@ const ReportField = ({ label, value, onChange, placeholder, className = reportTe
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment, allowOperativeDateEdit = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'repair' | 'parts' | 'testing' | 'operative'>('all');
-  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores'>('all');
+  const [workshopFilter, setWorkshopFilter] = useState<'all' | 'pesados' | 'camiones' | 'livianos' | 'contenedores' | 'alquilados'>('all');
   const [showStalledOnly, setShowStalledOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -531,13 +531,16 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   const getWorkshopType = (entry: MaintenanceEntry) => {
     const eq = equipment.find(e => e.id === entry.equipo_id);
-    const id = entry.equipo_id.toUpperCase();
+    const id = entry.equipo_id.toUpperCase().trim();
     const desc = ((eq?.tipo || '') + ' ' + (eq?.marca || '') + ' ' + (eq?.modelo || '')).toLowerCase();
     
     if (id.startsWith('X')) return 'contenedores';
     if (id.startsWith('E')) return 'pesados';
+    if (id.startsWith('A')) return 'camiones';
+    if (id.startsWith('G')) return 'livianos';
+    if (id.startsWith('Q')) return 'alquilados';
     if (id.startsWith('V')) {
-      if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo')) {
+      if (desc.includes('camión') || desc.includes('camion') || desc.includes('colectivo') || desc.includes('bus')) {
         return 'camiones';
       }
       return 'livianos';
@@ -610,19 +613,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const doc = new jsPDF('landscape');
     const todayStr = new Date().toLocaleDateString('en-CA');
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(30, 41, 59);
-    doc.text('Informe de Situación Actual de Taller - GEyT', 14, 20);
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
-    
-    let startY = 35;
     let totalLossAll = 0;
     let totalStayDaysAll = 0;
     let currentlyInWorkshopCount = 0;
+    let currentlyInWorkshopPesados = 0;
+    let currentlyInWorkshopLivianos = 0;
+    let currentlyInWorkshopCamiones = 0;
+    let currentlyInWorkshopContenedores = 0;
+    let currentlyInWorkshopAlquilados = 0;
     let operativeCount = 0;
     let waitingPartsCount = 0;
     let totalRepairDays = 0;
@@ -649,142 +647,44 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       } else {
         currentlyInWorkshopCount++;
         if (isWaitingParts) waitingPartsCount++;
+
+        const wType = getWorkshopType(entry);
+        if (wType === 'pesados') currentlyInWorkshopPesados++;
+        else if (wType === 'livianos') currentlyInWorkshopLivianos++;
+        else if (wType === 'camiones') currentlyInWorkshopCamiones++;
+        else if (wType === 'contenedores') currentlyInWorkshopContenedores++;
+        else if (wType === 'alquilados') currentlyInWorkshopAlquilados++;
       }
     });
 
-    filteredEntries.forEach((entry, index) => {
-      const eq = equipment.find(e => e.id === entry.equipo_id);
-      const { isOperative, isWaitingParts, isTesting, totalDays, breakdown } = getWorkshopStatus(entry);
-      const loss = calculateLoss(totalDays, eq);
-
-      let headerBg = [219, 234, 254]; 
-      if (isOperative) headerBg = [220, 252, 231]; 
-      else if (isTesting) headerBg = [237, 233, 254]; 
-      else if (isWaitingParts) headerBg = [255, 237, 213]; 
-
-      doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
-      doc.rect(14, startY, 269, 22, 'F');
-      doc.setDrawColor(200, 200, 200);
-      doc.rect(14, startY, 269, 22, 'S');
-      
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      
-      const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
-      
-      const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | AÑO: ${eq?.year || 'N/D'} | Hs/Km de arrastre: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
-      doc.text(headerText, 18, startY + 7);
-
-      // Goal display in PDF header
-      const goalStatus = getGoalStatus(entry.fecha_ingreso, entry.fecha_salida);
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(`OBJETIVO: ${MAINTENANCE_GOAL} DÍAS`, 280, startY + 7, { align: 'right' });
-      
-      if (goalStatus.isExceeded) {
-        doc.setTextColor(153, 27, 27); // Red
-      } else if (goalStatus.remaining <= 15) {
-        doc.setTextColor(180, 83, 9); // Orange
-      } else {
-        doc.setTextColor(21, 128, 61); // Green
-      }
-      doc.text(`${goalStatus.remaining} ${goalStatus.label.toUpperCase()}`, 280, startY + 13, { align: 'right' });
-      
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(30, 41, 59);
-      const breakdownText = `Reparación: ${breakdown.repairDays}d | Repuestos: ${breakdown.partsDays}d | Prueba: ${breakdown.testingDays}d`;
-      doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 13);
-      
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(153, 27, 27); 
-      doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 18);
-      
-      startY += 28;
-
-      doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text('MOTIVO DE INGRESO AL TALLER:', 14, startY);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(71, 85, 105);
-      const prelimText = entry.informe_fallas || 'Sin información registrada.';
-      const splitPrelim = doc.splitTextToSize(prelimText, 260);
-      doc.text(splitPrelim, 14, startY + 5);
-      
-      startY += (splitPrelim.length * 5) + 6;
-
-      const actions = (entry.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
-      const tableData: any[] = actions.map((action, idx) => {
-        const currentActionDate = action.fecha_accion;
-        const nextAction = actions[idx + 1];
-        let endDateCalc = todayStr;
-        if (nextAction) {
-          endDateCalc = nextAction.fecha_accion;
-        } else {
-          endDateCalc = isOperative ? currentActionDate : todayStr;
-        }
-
-        const durationStage = getDiffDays(currentActionDate, endDateCalc);
-        const accumulated = getDiffDays(entry.fecha_ingreso, endDateCalc);
-
-        return [
-          formatDateDisplay(action.fecha_accion),
-          action.descripcion,
-          action.responsable || '-',
-          `${durationStage} d.`,
-          `${accumulated} d.`
-        ];
-      });
-
-      if (entry.observaciones && entry.observaciones.trim() !== "") {
-        tableData.push([
-          { 
-            content: `OBSERVACIONES: ${entry.observaciones}`, 
-            colSpan: 5, 
-            styles: { 
-              fontStyle: 'italic', 
-              fillColor: [248, 250, 252], 
-              textColor: [100, 116, 139],
-              fontSize: 7
-            } 
-          }
-        ]);
-      }
-
-      autoTable(doc, {
-        startY: startY,
-        head: [['Fecha', 'Acción Realizada', 'Responsable', 'Duración Etapa', 'Estadía Acum.']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [51, 65, 85], fontSize: 7.5 },
-        styles: { fontSize: 7.5, cellPadding: 2 }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 8;
-      if (startY > 165 && index < filteredEntries.length - 1) {
-        doc.addPage();
-        startY = 20;
-      }
-    });
-
-    doc.addPage();
-    doc.setFontSize(16);
+    // --- Page 1: Resumen de Gestión y KPI de Flota ---
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
     doc.setTextColor(30, 41, 59);
-    doc.text('RESUMEN DE GESTIÓN Y KPI DE FLOTA', 14, 25);
+    doc.text('Informe de Situación Actual de Taller - GEyT', 14, 20);
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('RESUMEN DE GESTIÓN Y KPI DE FLOTA', 14, 32);
     
     const avgStay = entries.length > 0 ? (totalStayDaysAll / entries.length).toFixed(2) : "0.00";
     const avgRepair = entriesWithStay > 0 ? (totalRepairDays / entriesWithStay).toFixed(2) : "0.00";
     const avgParts = entriesWithStay > 0 ? (totalPartsDays / entriesWithStay).toFixed(2) : "0.00";
 
     autoTable(doc, {
-      startY: 40,
+      startY: 38,
       head: [['Indicador', 'Valor']],
       body: [
-        ['Equipos en taller hoy', currentlyInWorkshopCount],
+        ['Equipos en taller hoy (Total)', currentlyInWorkshopCount],
+        ['   • Taller Pesados (E)', currentlyInWorkshopPesados],
+        ['   • Taller Livianos (G/V)', currentlyInWorkshopLivianos],
+        ['   • Taller Camiones (A/V)', currentlyInWorkshopCamiones],
+        ['   • Taller Contenedores (X)', currentlyInWorkshopContenedores],
+        ['   • Equipos Alquilados (Q)', currentlyInWorkshopAlquilados],
         ['Equipos esperando repuestos', waitingPartsCount],
         ['Equipos operativos', operativeCount],
         ['Estadía promedio general', `${avgStay} d.`],
@@ -793,8 +693,195 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         ['Pérdida facturación total', formatCurrencyAbbr(totalLossAll)],
       ],
       theme: 'striped',
-      headStyles: { fillColor: [21, 128, 61], fontSize: 11 },
-      bodyStyles: { fontSize: 11, cellPadding: 6 }
+      headStyles: { fillColor: [21, 128, 61], fontSize: 10, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9.5, cellPadding: 3.2 },
+      columnStyles: {
+        0: { cellWidth: 160 },
+        1: { cellWidth: 80, halign: 'center', fontStyle: 'bold' }
+      }
+    });
+
+    // Helper for status sorting inside each workshop: primero "En Reparación", luego "Esperando Repuestos"
+    const getStatusSortPriority = (entry: MaintenanceEntry) => {
+      const { isWaitingParts, isTesting, isInRepair } = getWorkshopStatus(entry);
+      if (isInRepair) return 1;       // "En Reparación" primero
+      if (isTesting) return 2;        // "En Prueba"
+      if (isWaitingParts) return 3;   // "Esperando Repuestos" luego
+      return 4;
+    };
+
+    const workshopDefinitions: { key: 'pesados' | 'livianos' | 'camiones' | 'contenedores' | 'alquilados', title: string }[] = [
+      { key: 'pesados', title: 'TALLER PESADOS' },
+      { key: 'livianos', title: 'TALLER LIVIANOS' },
+      { key: 'camiones', title: 'TALLER CAMIONES' },
+      { key: 'contenedores', title: 'TALLER CONTENEDORES' },
+      { key: 'alquilados', title: 'EQUIPOS ALQUILADOS' }
+    ];
+
+    const activeWorkshopGroups: { title: string, entries: MaintenanceEntry[] }[] = [];
+
+    workshopDefinitions.forEach(wDef => {
+      const wEntries = filteredEntries.filter(e => getWorkshopType(e) === wDef.key);
+      if (wEntries.length > 0) {
+        const sorted = [...wEntries].sort((a, b) => {
+          const pA = getStatusSortPriority(a);
+          const pB = getStatusSortPriority(b);
+          if (pA !== pB) return pA - pB;
+          return a.equipo_id.localeCompare(b.equipo_id);
+        });
+        activeWorkshopGroups.push({ title: wDef.title, entries: sorted });
+      }
+    });
+
+    // Other entries if any
+    const otherEntries = filteredEntries.filter(e => {
+      const t = getWorkshopType(e);
+      return t !== 'pesados' && t !== 'livianos' && t !== 'camiones' && t !== 'contenedores' && t !== 'alquilados';
+    });
+
+    if (otherEntries.length > 0) {
+      const sorted = [...otherEntries].sort((a, b) => {
+        const pA = getStatusSortPriority(a);
+        const pB = getStatusSortPriority(b);
+        if (pA !== pB) return pA - pB;
+        return a.equipo_id.localeCompare(b.equipo_id);
+      });
+      activeWorkshopGroups.push({ title: 'OTROS EQUIPOS', entries: sorted });
+    }
+
+    // Render each workshop starting on a new page
+    activeWorkshopGroups.forEach((group) => {
+      doc.addPage();
+      
+      // Workshop page header
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`Informe de Situación Actual - ${group.title}`, 14, 20);
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`, 283, 20, { align: 'right' });
+
+      let startY = 30;
+
+      group.entries.forEach((entry, index) => {
+        const eq = equipment.find(e => e.id === entry.equipo_id);
+        const { isOperative, isWaitingParts, isTesting, totalDays, breakdown } = getWorkshopStatus(entry);
+        const loss = calculateLoss(totalDays, eq);
+
+        let headerBg = [219, 234, 254]; 
+        if (isOperative) headerBg = [220, 252, 231]; 
+        else if (isTesting) headerBg = [237, 233, 254]; 
+        else if (isWaitingParts) headerBg = [255, 237, 213]; 
+
+        doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
+        doc.rect(14, startY, 269, 22, 'F');
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(14, startY, 269, 22, 'S');
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        
+        const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
+        
+        const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | AÑO: ${eq?.year || 'N/D'} | Hs/Km de arrastre: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
+        doc.text(headerText, 18, startY + 7);
+
+        // Goal display in PDF header
+        const goalStatus = getGoalStatus(entry.fecha_ingreso, entry.fecha_salida);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text(`OBJETIVO: ${MAINTENANCE_GOAL} DÍAS`, 280, startY + 7, { align: 'right' });
+        
+        if (goalStatus.isExceeded) {
+          doc.setTextColor(153, 27, 27); // Red
+        } else if (goalStatus.remaining <= 15) {
+          doc.setTextColor(180, 83, 9); // Orange
+        } else {
+          doc.setTextColor(21, 128, 61); // Green
+        }
+        doc.text(`${goalStatus.remaining} ${goalStatus.label.toUpperCase()}`, 280, startY + 13, { align: 'right' });
+        
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+        const breakdownText = `Reparación: ${breakdown.repairDays}d | Repuestos: ${breakdown.partsDays}d | Prueba: ${breakdown.testingDays}d`;
+        doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 13);
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(153, 27, 27); 
+        doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 18);
+        
+        startY += 28;
+
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('MOTIVO DE INGRESO AL TALLER:', 14, startY);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        const prelimText = entry.informe_fallas || 'Sin información registrada.';
+        const splitPrelim = doc.splitTextToSize(prelimText, 260);
+        doc.text(splitPrelim, 14, startY + 5);
+        
+        startY += (splitPrelim.length * 5) + 6;
+
+        const actions = (entry.acciones_taller || []).filter(a => a.responsable !== 'Sistema');
+        const tableData: any[] = actions.map((action, idx) => {
+          const currentActionDate = action.fecha_accion;
+          const nextAction = actions[idx + 1];
+          let endDateCalc = todayStr;
+          if (nextAction) {
+            endDateCalc = nextAction.fecha_accion;
+          } else {
+            endDateCalc = isOperative ? currentActionDate : todayStr;
+          }
+
+          const durationStage = getDiffDays(currentActionDate, endDateCalc);
+          const accumulated = getDiffDays(entry.fecha_ingreso, endDateCalc);
+
+          return [
+            formatDateDisplay(action.fecha_accion),
+            action.descripcion,
+            action.responsable || '-',
+            `${durationStage} d.`,
+            `${accumulated} d.`
+          ];
+        });
+
+        if (entry.observaciones && entry.observaciones.trim() !== "") {
+          tableData.push([
+            { 
+              content: `OBSERVACIONES: ${entry.observaciones}`, 
+              colSpan: 5, 
+              styles: { 
+                fontStyle: 'italic', 
+                fillColor: [248, 250, 252], 
+                textColor: [100, 116, 139],
+                fontSize: 7
+              } 
+            }
+          ]);
+        }
+
+        autoTable(doc, {
+          startY: startY,
+          head: [['Fecha', 'Acción Realizada', 'Responsable', 'Duración Etapa', 'Estadía Acum.']],
+          body: tableData,
+          theme: 'grid',
+          headStyles: { fillColor: [51, 65, 85], fontSize: 7.5 },
+          styles: { fontSize: 7.5, cellPadding: 2 }
+        });
+
+        startY = (doc as any).lastAutoTable.finalY + 8;
+        if (startY > 165 && index < group.entries.length - 1) {
+          doc.addPage();
+          startY = 20;
+        }
+      });
     });
 
     let fileName = `Informe_Taller_${todayStr}`;
@@ -1181,9 +1268,10 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             >
               <option value="all">TODOS LOS TALLERES</option>
               <option value="pesados">TALLER PESADOS (E)</option>
-              <option value="camiones">TALLER CAMIONES (V)</option>
-              <option value="livianos">TALLER LIVIANOS (V)</option>
+              <option value="camiones">TALLER CAMIONES (A/V)</option>
+              <option value="livianos">TALLER LIVIANOS (G/V)</option>
               <option value="contenedores">TALLER CONTENEDORES (X)</option>
+              <option value="alquilados">EQUIPOS ALQUILADOS (Q)</option>
             </select>
           </div>
 
