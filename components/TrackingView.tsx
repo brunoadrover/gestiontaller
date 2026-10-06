@@ -216,8 +216,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [isDateUnlocked, setIsDateUnlocked] = useState(false);
   const [operativeError, setOperativeError] = useState<string | null>(null);
 
-  // States for Parts Received (Repuestos Entregados) Map for multi-record support
-  const [partsReceivedMap, setPartsReceivedMap] = useState<Record<string, { note: string; responsable: string; date: string }>>({});
+  // State for in-memory edits of entries in CONFIRMACION state
+  const [confirmationFormMap, setConfirmationFormMap] = useState<Record<string, { note: string; responsable: string; date: string }>>({});
 
   // States for Technical Report Modal
   const [showReportModal, setShowReportModal] = useState(false);
@@ -359,7 +359,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           const estado = entry.estado || 'REPARACION';
           const updates: any = {};
           
-          if (estado === 'REPARACION') {
+          if (estado === 'REPARACION' || estado === 'CONFIRMACION') {
             updates.estadia_reparacion = Number(entry.estadia_reparacion || 0) + daysToSync;
           } else if (estado === 'COMPRAS') {
             updates.estadia_compras = Number(entry.estadia_compras || 0) + daysToSync;
@@ -402,6 +402,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const estado = entry.estado || 'REPARACION';
     const isOperative = estado === 'OPERATIVO';
     const isWaitingParts = estado === 'COMPRAS';
+    const isConfirmation = estado === 'CONFIRMACION';
     const isTesting = estado === 'PRUEBA';
     const isInRepair = estado === 'REPARACION';
 
@@ -414,7 +415,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     const totalDays = getDiffDays(entry.fecha_ingreso, endDateStr);
 
     return { 
-      isOperative, isWaitingParts, isTesting, isInRepair, 
+      isOperative, isWaitingParts, isConfirmation, isTesting, isInRepair, 
       endDate: endDateStr, totalDays,
       breakdown: { repairDays, partsDays, testingDays }
     };
@@ -442,7 +443,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
       const updates: any = { estado: newStatus };
       
-      if (currentStatus === 'REPARACION') {
+      if (currentStatus === 'REPARACION' || currentStatus === 'CONFIRMACION') {
         updates.estadia_reparacion = Math.max(0, Number(entry.estadia_reparacion || 0) + daysDiff);
       } else if (currentStatus === 'COMPRAS') {
         updates.estadia_compras = Math.max(0, Number(entry.estadia_compras || 0) + daysDiff);
@@ -464,6 +465,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       const statusLabels: Record<string, string> = {
         'REPARACION': 'EN REPARACIÓN',
         'COMPRAS': 'ESPERANDO REPUESTOS',
+        'CONFIRMACION': 'CONFIRMACIÓN (REPUESTOS RECIBIDOS)',
         'PRUEBA': 'EN PRUEBA',
         'OPERATIVO': 'OPERATIVO'
       };
@@ -532,60 +534,54 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     await handleStatusChange(targetEntry, 'OPERATIVO', chosenExitDate);
   };
 
-  const handlePartsClick = (entry: MaintenanceEntry) => {
-    const { isWaitingParts } = getWorkshopStatus(entry);
-    if (isWaitingParts) {
-      // Abre el panel de REPUESTOS ENTREGADOS para este equipo
-      setPartsReceivedMap(prev => ({
-        ...prev,
-        [entry.id]: {
-          note: prev[entry.id]?.note || 'Repuestos e insumos entregados en taller',
-          responsable: prev[entry.id]?.responsable || 'Depósito / Taller',
-          date: prev[entry.id]?.date || today
-        }
-      }));
-    } else {
-      // Cambia al estado ESPERANDO REPUESTOS
-      handleStatusChange(entry, 'COMPRAS');
-    }
+  const getConfirmationFormData = (entryId: string) => {
+    return confirmationFormMap[entryId] || {
+      note: 'Repuestos e insumos entregados en taller',
+      responsable: 'Depósito / Taller',
+      date: today
+    };
   };
 
-  const handleCancelPartsReceived = (entryId: string) => {
-    setPartsReceivedMap(prev => {
-      const updated = { ...prev };
-      delete updated[entryId];
-      return updated;
-    });
-  };
-
-  const updatePartsReceivedField = (entryId: string, field: 'note' | 'responsable' | 'date', val: string) => {
-    setPartsReceivedMap(prev => ({
+  const updateConfirmFormData = (entryId: string, field: 'note' | 'responsable' | 'date', val: string) => {
+    setConfirmationFormMap(prev => ({
       ...prev,
       [entryId]: {
-        note: prev[entryId]?.note || '',
-        responsable: prev[entryId]?.responsable || '',
-        date: prev[entryId]?.date || today,
+        ...getConfirmationFormData(entryId),
         [field]: val
       }
     }));
   };
 
+  const handlePartsClick = async (entry: MaintenanceEntry) => {
+    const { isWaitingParts } = getWorkshopStatus(entry);
+    if (isWaitingParts) {
+      // Pasa al estado persistente CONFIRMACION
+      await handleStatusChange(entry, 'CONFIRMACION');
+    } else {
+      // Pasa al estado ESPERANDO REPUESTOS
+      await handleStatusChange(entry, 'COMPRAS');
+    }
+  };
+
+  const handleCancelConfirmation = async (entry: MaintenanceEntry) => {
+    // Revertir a Esperando Repuestos
+    await handleStatusChange(entry, 'COMPRAS');
+  };
+
   const handleConfirmPartsReceived = async (entry: MaintenanceEntry) => {
-    const itemData = partsReceivedMap[entry.id];
+    const formData = getConfirmationFormData(entry.id);
     setIsProcessing(true);
     try {
-      handleCancelPartsReceived(entry.id);
-
       // Cambiar estado a EN REPARACIÓN
       await handleStatusChange(entry, 'REPARACION');
 
-      // Registrar avance específico de entrega de repuestos si tiene texto
-      if (itemData && itemData.note.trim()) {
+      // Registrar avance específico de entrega de repuestos
+      if (formData.note.trim()) {
         await supabase.from('acciones_taller').insert([{
           ingreso_id: entry.id,
-          descripcion: `REPUESTOS ENTREGADOS: ${itemData.note.trim()}`,
-          fecha_accion: itemData.date || today,
-          responsable: itemData.responsable.trim() || 'Taller'
+          descripcion: `REPUESTOS ENTREGADOS: ${formData.note.trim()}`,
+          fecha_accion: formData.date || today,
+          responsable: formData.responsable.trim() || 'Taller'
         }]);
         await refreshData();
       }
@@ -656,8 +652,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
     if (statusFilter !== 'all') {
       result = result.filter(entry => {
-        const { isOperative, isWaitingParts, isTesting, isInRepair } = getWorkshopStatus(entry);
+        const { isOperative, isWaitingParts, isTesting, isInRepair, isConfirmation } = getWorkshopStatus(entry);
         if (statusFilter === 'operative') return isOperative;
+        if (statusFilter === 'confirmation') return isConfirmation;
         if (statusFilter === 'parts') return isWaitingParts;
         if (statusFilter === 'testing') return isTesting;
         if (statusFilter === 'repair') return isInRepair;
@@ -673,15 +670,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       result = result.filter(entry => isStalledEntry(entry));
     }
 
-    const activeReceivedIds = Object.keys(partsReceivedMap);
-    if (activeReceivedIds.length > 0) {
-      const prioritized = result.filter(e => activeReceivedIds.includes(e.id));
-      const rest = result.filter(e => !activeReceivedIds.includes(e.id));
-      result = [...prioritized, ...rest];
-    }
+    // Prioritizar al comienzo todos los registros en estado "CONFIRMACION"
+    const inConfirmation = result.filter(e => e.estado === 'CONFIRMACION');
+    const others = result.filter(e => e.estado !== 'CONFIRMACION');
+    result = [...inConfirmation, ...others];
 
     return result;
-  }, [entries, searchTerm, statusFilter, workshopFilter, showStalledOnly, equipment, partsReceivedMap]);
+  }, [entries, searchTerm, statusFilter, workshopFilter, showStalledOnly, equipment]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -1358,6 +1353,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             >
               <option value="all">TODOS LOS ESTADOS</option>
               <option value="repair">EN REPARACIÓN</option>
+              <option value="confirmation">CONFIRMACIÓN (REPUESTOS RECIBIDOS)</option>
               <option value="parts">ESPERANDO REPUESTOS</option>
               <option value="testing">EN PRUEBA</option>
             </select>
@@ -1493,12 +1489,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                   ? getDiffDays(firstAction.fecha_accion, firstActionEndDate) 
                   : 0;
 
-                const isSelectedForPartsReceived = !!partsReceivedMap[entry.id];
-                const itemReceivedData = partsReceivedMap[entry.id];
+                const isConfirmation = entry.estado === 'CONFIRMACION';
+                const itemFormData = getConfirmationFormData(entry.id);
 
                 return (
                   <React.Fragment key={entry.id}>
-                    <tr className={`${isSelectedForPartsReceived ? 'bg-amber-100/60 ring-2 ring-amber-400' : (isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30')} border-t-2 border-slate-200 group transition-all`}>
+                    <tr className={`${isConfirmation ? 'bg-amber-100/70 ring-2 ring-amber-400 border-2 border-amber-500 shadow-md' : (isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30')} border-t-2 border-slate-200 group transition-all`}>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
                         
@@ -1569,6 +1565,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               {isOperative && <span className="px-1.5 py-0.5 bg-green-200 text-green-800 text-[8px] font-black rounded uppercase shadow-sm">Operativo</span>}
                               {isTesting && <span className="px-1.5 py-0.5 bg-violet-200 text-violet-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">En Prueba</span>}
                               {isWaitingParts && <span className="px-1.5 py-0.5 bg-orange-200 text-orange-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">Esperando Repuestos</span>}
+                              {isConfirmation && <span className="px-1.5 py-0.5 bg-amber-500 text-white text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm animate-pulse">Confirmación: Repuestos Recibidos</span>}
                               {isInRepair && <span className="px-1.5 py-0.5 bg-blue-200 text-blue-800 text-[8px] font-black rounded uppercase flex items-center gap-1 shadow-sm">EN REPARACIÓN</span>}
                             </div>
                           </div>
@@ -1662,7 +1659,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               </div>
                             )}
                           </div>
-                          {isSelectedForPartsReceived && itemReceivedData ? (
+                          {isConfirmation ? (
                             <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 rounded-2xl border-2 border-amber-500 shadow-xl animate-in zoom-in-95 duration-200">
                               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-amber-200 mb-3">
                                 <div className="flex items-center gap-2.5">
@@ -1672,21 +1669,21 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                   <div>
                                     <div className="flex items-center gap-2">
                                       <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-900 tracking-wider">
-                                        Aviso de Recepción
+                                        Estado: Confirmación
                                       </span>
                                       <span className="text-xs font-black text-slate-900 uppercase tracking-tight">
                                         REPUESTOS ENTREGADOS EN TALLER
                                       </span>
                                     </div>
                                     <p className="text-[11px] text-slate-600 font-medium mt-0.5">
-                                      Se confirma que los repuestos e insumos para el interno <strong className="text-slate-900 font-black">{entry.equipo_id}</strong> han sido recibidos. Al confirmar, el equipo pasará a estado <strong className="text-blue-700 uppercase font-black">"En Reparación"</strong>.
+                                      Este equipo está en <strong className="text-amber-800 font-black">CONFIRMACIÓN</strong> (repuestos recibidos). Al confirmar, pasará al estado <strong className="text-blue-700 uppercase font-black">"En Reparación"</strong>.
                                     </p>
                                   </div>
                                 </div>
                                 <button 
-                                  onClick={() => handleCancelPartsReceived(entry.id)}
+                                  onClick={() => handleCancelConfirmation(entry)}
                                   className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-colors self-end sm:self-center"
-                                  title="Cerrar aviso"
+                                  title="Volver a Esperando Repuestos"
                                 >
                                   <X className="w-4 h-4" />
                                 </button>
@@ -1699,8 +1696,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                   </label>
                                   <input 
                                     type="date"
-                                    value={itemReceivedData.date}
-                                    onChange={(e) => updatePartsReceivedField(entry.id, 'date', e.target.value)}
+                                    value={itemFormData.date}
+                                    onChange={(e) => updateConfirmFormData(entry.id, 'date', e.target.value)}
                                     className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
                                   />
                                 </div>
@@ -1710,8 +1707,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                   </label>
                                   <input 
                                     type="text"
-                                    value={itemReceivedData.responsable}
-                                    onChange={(e) => updatePartsReceivedField(entry.id, 'responsable', e.target.value)}
+                                    value={itemFormData.responsable}
+                                    onChange={(e) => updateConfirmFormData(entry.id, 'responsable', e.target.value)}
                                     placeholder="Taller / Depósito"
                                     className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
                                   />
@@ -1722,8 +1719,8 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                   </label>
                                   <input 
                                     type="text"
-                                    value={itemReceivedData.note}
-                                    onChange={(e) => updatePartsReceivedField(entry.id, 'note', e.target.value)}
+                                    value={itemFormData.note}
+                                    onChange={(e) => updateConfirmFormData(entry.id, 'note', e.target.value)}
                                     placeholder="Detalle de piezas recibidas..."
                                     className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
                                   />
@@ -1732,11 +1729,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
                               <div className="flex justify-end gap-2 pt-2 border-t border-amber-200">
                                 <button 
-                                  onClick={() => handleCancelPartsReceived(entry.id)}
+                                  onClick={() => handleCancelConfirmation(entry)}
                                   className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-bold transition-all border border-slate-200"
                                   disabled={isProcessing}
                                 >
-                                  Cancelar
+                                  Volver a Esperando Repuestos
                                 </button>
                                 <button 
                                   onClick={() => handleConfirmPartsReceived(entry)}
