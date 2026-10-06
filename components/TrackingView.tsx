@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
@@ -215,6 +215,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const [operativeAuthKey, setOperativeAuthKey] = useState<string>('');
   const [isDateUnlocked, setIsDateUnlocked] = useState(false);
   const [operativeError, setOperativeError] = useState<string | null>(null);
+
+  // States for Parts Received (Repuestos Entregados) Map for multi-record support
+  const [partsReceivedMap, setPartsReceivedMap] = useState<Record<string, { note: string; responsable: string; date: string }>>({});
 
   // States for Technical Report Modal
   const [showReportModal, setShowReportModal] = useState(false);
@@ -529,6 +532,70 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     await handleStatusChange(targetEntry, 'OPERATIVO', chosenExitDate);
   };
 
+  const handlePartsClick = (entry: MaintenanceEntry) => {
+    const { isWaitingParts } = getWorkshopStatus(entry);
+    if (isWaitingParts) {
+      // Abre el panel de REPUESTOS ENTREGADOS para este equipo
+      setPartsReceivedMap(prev => ({
+        ...prev,
+        [entry.id]: {
+          note: prev[entry.id]?.note || 'Repuestos e insumos entregados en taller',
+          responsable: prev[entry.id]?.responsable || 'Depósito / Taller',
+          date: prev[entry.id]?.date || today
+        }
+      }));
+    } else {
+      // Cambia al estado ESPERANDO REPUESTOS
+      handleStatusChange(entry, 'COMPRAS');
+    }
+  };
+
+  const handleCancelPartsReceived = (entryId: string) => {
+    setPartsReceivedMap(prev => {
+      const updated = { ...prev };
+      delete updated[entryId];
+      return updated;
+    });
+  };
+
+  const updatePartsReceivedField = (entryId: string, field: 'note' | 'responsable' | 'date', val: string) => {
+    setPartsReceivedMap(prev => ({
+      ...prev,
+      [entryId]: {
+        note: prev[entryId]?.note || '',
+        responsable: prev[entryId]?.responsable || '',
+        date: prev[entryId]?.date || today,
+        [field]: val
+      }
+    }));
+  };
+
+  const handleConfirmPartsReceived = async (entry: MaintenanceEntry) => {
+    const itemData = partsReceivedMap[entry.id];
+    setIsProcessing(true);
+    try {
+      handleCancelPartsReceived(entry.id);
+
+      // Cambiar estado a EN REPARACIÓN
+      await handleStatusChange(entry, 'REPARACION');
+
+      // Registrar avance específico de entrega de repuestos si tiene texto
+      if (itemData && itemData.note.trim()) {
+        await supabase.from('acciones_taller').insert([{
+          ingreso_id: entry.id,
+          descripcion: `REPUESTOS ENTREGADOS: ${itemData.note.trim()}`,
+          fecha_accion: itemData.date || today,
+          responsable: itemData.responsable.trim() || 'Taller'
+        }]);
+        await refreshData();
+      }
+    } catch (e: any) {
+      alert("Error al confirmar recepción de repuestos: " + (e.message || "Error desconocido"));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const getWorkshopType = (entry: MaintenanceEntry) => {
     const eq = equipment.find(e => e.id === entry.equipo_id);
     const id = entry.equipo_id.toUpperCase().trim();
@@ -606,8 +673,15 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       result = result.filter(entry => isStalledEntry(entry));
     }
 
+    const activeReceivedIds = Object.keys(partsReceivedMap);
+    if (activeReceivedIds.length > 0) {
+      const prioritized = result.filter(e => activeReceivedIds.includes(e.id));
+      const rest = result.filter(e => !activeReceivedIds.includes(e.id));
+      result = [...prioritized, ...rest];
+    }
+
     return result;
-  }, [entries, searchTerm, statusFilter, workshopFilter, showStalledOnly, equipment]);
+  }, [entries, searchTerm, statusFilter, workshopFilter, showStalledOnly, equipment, partsReceivedMap]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -1419,9 +1493,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                   ? getDiffDays(firstAction.fecha_accion, firstActionEndDate) 
                   : 0;
 
+                const isSelectedForPartsReceived = !!partsReceivedMap[entry.id];
+                const itemReceivedData = partsReceivedMap[entry.id];
+
                 return (
                   <React.Fragment key={entry.id}>
-                    <tr className={`${isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30'} border-t-2 border-slate-200 group`}>
+                    <tr className={`${isSelectedForPartsReceived ? 'bg-amber-100/60 ring-2 ring-amber-400' : (isOperative ? 'bg-green-50/50' : isTesting ? 'bg-violet-50/50' : isWaitingParts ? 'bg-orange-50/50' : 'bg-blue-50/30')} border-t-2 border-slate-200 group transition-all`}>
                       <td className="px-4 py-4 border-r border-slate-200">
                         <div className="font-black text-slate-900 leading-none">{entry.equipo_id}</div>
                         
@@ -1585,7 +1662,102 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               </div>
                             )}
                           </div>
-                          {selectedEntryId === entry.id ? (
+                          {isSelectedForPartsReceived && itemReceivedData ? (
+                            <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 rounded-2xl border-2 border-amber-500 shadow-xl animate-in zoom-in-95 duration-200">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-amber-200 mb-3">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="p-2 bg-amber-500 text-white rounded-xl shadow-md">
+                                    <PackageCheck className="w-5 h-5 animate-bounce" />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-900 tracking-wider">
+                                        Aviso de Recepción
+                                      </span>
+                                      <span className="text-xs font-black text-slate-900 uppercase tracking-tight">
+                                        REPUESTOS ENTREGADOS EN TALLER
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+                                      Se confirma que los repuestos e insumos para el interno <strong className="text-slate-900 font-black">{entry.equipo_id}</strong> han sido recibidos. Al confirmar, el equipo pasará a estado <strong className="text-blue-700 uppercase font-black">"En Reparación"</strong>.
+                                    </p>
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => handleCancelPartsReceived(entry.id)}
+                                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white rounded-lg transition-colors self-end sm:self-center"
+                                  title="Cerrar aviso"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 mb-3">
+                                <div>
+                                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-wide mb-1">
+                                    Fecha de Entrega
+                                  </label>
+                                  <input 
+                                    type="date"
+                                    value={itemReceivedData.date}
+                                    onChange={(e) => updatePartsReceivedField(entry.id, 'date', e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-wide mb-1">
+                                    Receptor / Mecánico
+                                  </label>
+                                  <input 
+                                    type="text"
+                                    value={itemReceivedData.responsable}
+                                    onChange={(e) => updatePartsReceivedField(entry.id, 'responsable', e.target.value)}
+                                    placeholder="Taller / Depósito"
+                                    className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-wide mb-1">
+                                    Detalle de Repuestos
+                                  </label>
+                                  <input 
+                                    type="text"
+                                    value={itemReceivedData.note}
+                                    onChange={(e) => updatePartsReceivedField(entry.id, 'note', e.target.value)}
+                                    placeholder="Detalle de piezas recibidas..."
+                                    className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-400"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex justify-end gap-2 pt-2 border-t border-amber-200">
+                                <button 
+                                  onClick={() => handleCancelPartsReceived(entry.id)}
+                                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-bold transition-all border border-slate-200"
+                                  disabled={isProcessing}
+                                >
+                                  Cancelar
+                                </button>
+                                <button 
+                                  onClick={() => handleConfirmPartsReceived(entry)}
+                                  disabled={isProcessing}
+                                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-emerald-950/20 flex items-center gap-1.5 disabled:bg-slate-300"
+                                >
+                                  {isProcessing ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Guardando...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-4 h-4" />
+                                      <span>Confirmar y Pasar a En Reparación</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ) : selectedEntryId === entry.id ? (
                             <div className="flex gap-2 items-center bg-slate-100 p-3 rounded-lg border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
                               <input autoFocus type="text" value={newActionText} onChange={e => setNewActionText(e.target.value)} placeholder="¿Qué se hizo?" className="flex-[3] text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
                               <input type="text" value={newActionResponsable} onChange={e => setNewActionResponsable(e.target.value)} placeholder="Mecánico" className="flex-1 text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
@@ -1601,14 +1773,18 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               
                               <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-full border border-slate-200 shadow-inner">
                                 <button 
-                                  onClick={() => handleStatusChange(entry, isWaitingParts ? 'REPARACION' : 'COMPRAS')}
+                                  onClick={() => handlePartsClick(entry)}
                                   disabled={isProcessing}
-                                  className={`p-1.5 rounded-full transition-all flex items-center gap-1.5 px-3 ${isWaitingParts ? 'bg-orange-500 text-white shadow-md' : 'text-slate-400 hover:text-orange-600 hover:bg-orange-50'}`}
-                                  title={isWaitingParts ? "Repuestos/Terceros Recibido" : "Esperando Repuestos/Terceros"}
+                                  className={`p-1.5 rounded-full transition-all flex items-center gap-1.5 px-3 font-bold ${
+                                    isWaitingParts 
+                                      ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md ring-2 ring-amber-300 animate-pulse' 
+                                      : 'text-slate-400 hover:text-orange-600 hover:bg-orange-50'
+                                  }`}
+                                  title={isWaitingParts ? "Repuestos recibidos: Click para advertir y pasar a En Reparación" : "Pasar a Esperando Repuestos/Terceros"}
                                 >
-                                  <ShoppingCart className="w-3.5 h-3.5" />
+                                  {isWaitingParts ? <PackageCheck className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
                                   <span className="text-[9px] font-black uppercase tracking-tighter">
-                                    {isWaitingParts ? 'Recibido' : 'Repuestos'}
+                                    {isWaitingParts ? 'RECIBIDO' : 'Repuestos'}
                                   </span>
                                 </button>
 
