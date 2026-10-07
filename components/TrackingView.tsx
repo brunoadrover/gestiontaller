@@ -845,9 +845,9 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         else if (isWaitingParts) headerBg = [255, 237, 213]; 
 
         doc.setFillColor(headerBg[0], headerBg[1], headerBg[2]);
-        doc.rect(14, startY, 269, 22, 'F');
+        doc.rect(14, startY, 269, 26, 'F');
         doc.setDrawColor(200, 200, 200);
-        doc.rect(14, startY, 269, 22, 'S');
+        doc.rect(14, startY, 269, 26, 'S');
         
         doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
@@ -856,14 +856,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         const statusLabel = isOperative ? 'OPERATIVO' : (isTesting ? 'EN PRUEBA' : (isWaitingParts ? 'EN TALLER (ESPERA REPUESTOS)' : 'EN REPARACIÓN'));
         
         const headerText = `INTERNO: ${entry.equipo_id} | MARCA: ${eq?.marca || ''} ${eq?.modelo || ''} | AÑO: ${eq?.year || 'N/D'} | Hs/Km de arrastre: ${eq?.horas?.toLocaleString('de-DE') || '0'}`;
-        doc.text(headerText, 18, startY + 7);
+        doc.text(headerText, 18, startY + 6);
 
         // Goal display in PDF header
         const goalStatus = getGoalStatus(entry.fecha_ingreso, entry.fecha_salida);
         doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(30, 41, 59);
-        doc.text(`OBJETIVO: ${MAINTENANCE_GOAL} DÍAS`, 280, startY + 7, { align: 'right' });
+        doc.text(`OBJETIVO: ${MAINTENANCE_GOAL} DÍAS`, 280, startY + 6, { align: 'right' });
         
         if (goalStatus.isExceeded) {
           doc.setTextColor(153, 27, 27); // Red
@@ -872,19 +872,47 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
         } else {
           doc.setTextColor(21, 128, 61); // Green
         }
-        doc.text(`${goalStatus.remaining} ${goalStatus.label.toUpperCase()}`, 280, startY + 13, { align: 'right' });
+        doc.text(`${goalStatus.remaining} ${goalStatus.label.toUpperCase()}`, 280, startY + 11.5, { align: 'right' });
+        
+        // Counting for Cant Pedidos and Cantidad de SOTT (actions where responsable is not COMPRAS)
+        const nonComprasActions = (entry.acciones_taller || []).filter(a => {
+          const resp = (a.responsable || '').trim().toUpperCase();
+          return resp !== 'COMPRAS' && resp !== 'SISTEMA';
+        });
+
+        const cantPedidos = nonComprasActions.filter(a => {
+          const desc = (a.descripcion || '').trim().toLowerCase();
+          return /^pedidos?\s+de\s+repuestos?/i.test(desc);
+        }).length;
+
+        const cantSOTT = nonComprasActions.filter(a => {
+          const desc = (a.descripcion || '').trim();
+          return /(SOTT|SOOT|\bOT\b|O\.T\.?)/i.test(desc);
+        }).length;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`Cant Pedidos: ${cantPedidos}`, 280, startY + 16.5, { align: 'right' });
+        doc.text(`Cantidad de SOTT: ${cantSOTT}`, 280, startY + 21.5, { align: 'right' });
         
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(30, 41, 59);
         const breakdownText = `Reparación: ${breakdown.repairDays}d | Repuestos: ${breakdown.partsDays}d | Prueba: ${breakdown.testingDays}d`;
-        doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 13);
+        doc.text(`INGRESO: ${formatDateDisplay(entry.fecha_ingreso)} | ESTADO ACTUAL: ${statusLabel} | ESTADÍA TOTAL: ${totalDays} días (${breakdownText})`, 18, startY + 11.5);
         
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(153, 27, 27); 
-        doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 18);
+        doc.text(`PÉRDIDA DE FACTURACIÓN ESTIMADA: ${formatCurrencyAbbr(loss)}`, 18, startY + 16.5);
         
-        startY += 28;
+        const propietarioVal = eq?.propietario ? String(eq.propietario).trim() : 'N/D';
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`PROPIETARIO: ${propietarioVal}`, 18, startY + 21.5);
+        
+        startY += 31;
 
         doc.setFontSize(8.5);
         doc.setFont('helvetica', 'bold');

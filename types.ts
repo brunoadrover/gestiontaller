@@ -9,6 +9,7 @@ export interface Equipment {
   valor_nuevo: number;
   demerito: number;
   comentario_general?: string;
+  propietario?: string | null;
 }
 
 export interface MaintenanceAction {
