@@ -277,6 +277,12 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   });
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [actionCategory, setActionCategory] = useState<'pedido' | 'sott' | 'reparacion'>('pedido');
+  // Sub-fields according to category
+  const [rcNumber, setRcNumber] = useState('');
+  const [compartimientos, setCompartimientos] = useState('');
+  const [sottComponente, setSottComponente] = useState('');
+  const [sottProveedor, setSottProveedor] = useState('');
   const [newActionText, setNewActionText] = useState('');
   const [newActionResponsable, setNewActionResponsable] = useState('');
   const [newActionDate, setNewActionDate] = useState(today);
@@ -1204,19 +1210,72 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     }
   };
 
+  const resetActionForm = () => {
+    setSelectedEntryId(null);
+    setActionCategory('pedido');
+    setRcNumber('');
+    setCompartimientos('');
+    setSottComponente('');
+    setSottProveedor('');
+    setNewActionText('');
+    setNewActionResponsable('');
+    setNewActionDate(today);
+  };
+
   const handleAddAction = async (entryId: string) => {
-    if (!newActionText.trim()) return;
+    const entry = entries.find(e => e.id === entryId);
+    if (!entry) return;
+
+    let finalDescripcion = '';
+    let targetStatus = '';
+
+    if (actionCategory === 'pedido') {
+      const rcTrim = rcNumber.trim();
+      const compTrim = compartimientos.trim();
+      if (!rcTrim && !compTrim) {
+        alert("Por favor ingrese el número de RC y/o los compartimientos.");
+        return;
+      }
+      finalDescripcion = `Pedido de repuestos RC: ${rcTrim ? rcTrim : '-'} ${compTrim}`.trim();
+      targetStatus = 'COMPRAS';
+    } else if (actionCategory === 'sott') {
+      const compTrim = sottComponente.trim();
+      const provTrim = sottProveedor.trim();
+      if (!compTrim && !provTrim) {
+        alert("Por favor ingrese el componente y el proveedor para SOTT.");
+        return;
+      }
+      finalDescripcion = `SOTT ${compTrim} ${provTrim}`.trim();
+      targetStatus = 'COMPRAS';
+    } else {
+      // Reparación
+      const textTrim = newActionText.trim();
+      if (!textTrim) {
+        alert("Por favor describa la reparación efectuada.");
+        return;
+      }
+      finalDescripcion = `Reparación: ${textTrim}`.trim();
+      targetStatus = 'REPARACION';
+    }
+
     setIsProcessing(true);
     try {
       const { error } = await supabase.from('acciones_taller').insert([{
         ingreso_id: entryId,
-        descripcion: newActionText,
+        descripcion: finalDescripcion,
         fecha_accion: newActionDate,
-        responsable: newActionResponsable || 'Taller'
+        responsable: newActionResponsable.trim() || 'Taller'
       }]);
       if (error) throw error;
-      await refreshData();
-      setNewActionText(''); setNewActionResponsable(''); setSelectedEntryId(null);
+
+      // Actualizar estado si corresponde
+      if (targetStatus && entry.estado !== targetStatus) {
+        await handleStatusChange(entry, targetStatus);
+      } else {
+        await refreshData();
+      }
+
+      resetActionForm();
     } catch (e) {
       alert("Error guardando avance: " + (e as any).message);
     } finally {
@@ -1783,12 +1842,193 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                               </div>
                             </div>
                           ) : selectedEntryId === entry.id ? (
-                            <div className="flex gap-2 items-center bg-slate-100 p-3 rounded-lg border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
-                              <input autoFocus type="text" value={newActionText} onChange={e => setNewActionText(e.target.value)} placeholder="¿Qué se hizo?" className="flex-[3] text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
-                              <input type="text" value={newActionResponsable} onChange={e => setNewActionResponsable(e.target.value)} placeholder="Mecánico" className="flex-1 text-xs p-2 rounded border-2 border-slate-400 font-bold bg-white text-slate-950 outline-none" />
-                              <input type="date" value={newActionDate} onChange={e => setNewActionDate(e.target.value)} className="text-xs p-2 rounded border-2 border-slate-400 w-32 font-bold bg-white text-slate-950 outline-none" />
-                              <button onClick={() => handleAddAction(entry.id)} disabled={isProcessing} className="bg-green-600 text-white p-2 rounded hover:bg-green-700 disabled:bg-slate-300 shadow-md"><Save className="w-4 h-4" /></button>
-                              <button onClick={() => setSelectedEntryId(null)} className="text-slate-500 p-2 hover:bg-slate-200 rounded transition-colors"><X className="w-4 h-4" /></button>
+                            <div className="flex flex-col gap-3 bg-slate-50 p-3.5 rounded-xl border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
+                              {/* Selector de camino */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                  Tipo de Avance:
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActionCategory('pedido')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                                      actionCategory === 'pedido'
+                                        ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-300'
+                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                    }`}
+                                  >
+                                    <ShoppingCart className="w-3.5 h-3.5" />
+                                    <span>Pedido de repuestos</span>
+                                    <span className="text-[9px] opacity-80 font-normal">→ ESPERANDO REPUESTOS</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActionCategory('sott')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                                      actionCategory === 'sott'
+                                        ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-300'
+                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                    }`}
+                                  >
+                                    <Wrench className="w-3.5 h-3.5" />
+                                    <span>SOTT</span>
+                                    <span className="text-[9px] opacity-80 font-normal">→ ESPERANDO REPUESTOS</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActionCategory('reparacion')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                                      actionCategory === 'reparacion'
+                                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-300'
+                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                    }`}
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Reparación</span>
+                                    <span className="text-[9px] opacity-80 font-normal">→ EN REPARACIÓN</span>
+                                  </button>
+                                </div>
+                                <button 
+                                  onClick={resetActionForm} 
+                                  className="text-slate-400 hover:text-slate-700 p-1 rounded-md transition-colors ml-auto"
+                                  title="Cerrar"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              {/* Formulario según opción */}
+                              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
+                                {actionCategory === 'pedido' && (
+                                  <>
+                                    <div className="md:col-span-2">
+                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                        N° de RC:
+                                      </label>
+                                      <input 
+                                        autoFocus
+                                        type="text" 
+                                        value={rcNumber} 
+                                        onChange={e => setRcNumber(e.target.value)} 
+                                        placeholder="Ej: 1234" 
+                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500" 
+                                      />
+                                    </div>
+                                    <div className="md:col-span-4">
+                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                        Compartimiento(s):
+                                      </label>
+                                      <input 
+                                        type="text" 
+                                        value={compartimientos} 
+                                        onChange={e => setCompartimientos(e.target.value)} 
+                                        placeholder="Ej: motor, transmisión, sist. eléctrico..." 
+                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500" 
+                                      />
+                                    </div>
+                                  </>
+                                )}
+
+                                {actionCategory === 'sott' && (
+                                  <>
+                                    <div className="md:col-span-3">
+                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                        Componente:
+                                      </label>
+                                      <input 
+                                        autoFocus
+                                        type="text" 
+                                        value={sottComponente} 
+                                        onChange={e => setSottComponente(e.target.value)} 
+                                        placeholder="Ej: Bomba hidráulica, Cilindro..." 
+                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500" 
+                                      />
+                                    </div>
+                                    <div className="md:col-span-3">
+                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                        Proveedor:
+                                      </label>
+                                      <input 
+                                        type="text" 
+                                        value={sottProveedor} 
+                                        onChange={e => setSottProveedor(e.target.value)} 
+                                        placeholder="Ej: Finning, Turbos del Sur..." 
+                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500" 
+                                      />
+                                    </div>
+                                  </>
+                                )}
+
+                                {actionCategory === 'reparacion' && (
+                                  <div className="md:col-span-6">
+                                    <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                      Descripción de Reparación:
+                                    </label>
+                                    <input 
+                                      autoFocus
+                                      type="text" 
+                                      value={newActionText} 
+                                      onChange={e => setNewActionText(e.target.value)} 
+                                      placeholder="Describa la reparación realizada libremente..." 
+                                      className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-emerald-500" 
+                                    />
+                                  </div>
+                                )}
+
+                                <div className="md:col-span-2">
+                                  <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                    Mecánico / Resp.:
+                                  </label>
+                                  <input 
+                                    type="text" 
+                                    value={newActionResponsable} 
+                                    onChange={e => setNewActionResponsable(e.target.value)} 
+                                    placeholder="Mecánico" 
+                                    className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500" 
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
+                                    Fecha:
+                                  </label>
+                                  <input 
+                                    type="date" 
+                                    value={newActionDate} 
+                                    onChange={e => setNewActionDate(e.target.value)} 
+                                    className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500" 
+                                  />
+                                </div>
+                                <div className="md:col-span-2 flex items-center gap-1.5">
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleAddAction(entry.id)} 
+                                    disabled={isProcessing} 
+                                    className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md disabled:bg-slate-300 transition-all"
+                                  >
+                                    <Save className="w-3.5 h-3.5" />
+                                    <span>Guardar</span>
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={resetActionForm} 
+                                    className="text-slate-500 p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                                    title="Cancelar"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Vista previa de lo que se guardará */}
+                              <div className="text-[11px] text-slate-500 bg-white p-2 rounded-lg border border-slate-200 flex items-center gap-2">
+                                <span className="font-bold text-slate-700">Vista previa del avance:</span>
+                                <span className="font-mono text-slate-800">
+                                  {actionCategory === 'pedido' && `Pedido de repuestos RC: ${rcNumber.trim() || '[RC]'} ${compartimientos.trim() || '[Compartimientos]'}`}
+                                  {actionCategory === 'sott' && `SOTT ${sottComponente.trim() || '[Componente]'} ${sottProveedor.trim() || '[Proveedor]'}`}
+                                  {actionCategory === 'reparacion' && `Reparación: ${newActionText.trim() || '[Texto de reparación]'}`}
+                                </span>
+                              </div>
                             </div>
                           ) : (
                             <div className="flex items-center gap-3">
