@@ -1,19 +1,11 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package } from 'lucide-react';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package, FolderDown } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
-import { GoogleGenAI } from "@google/genai";
-
-const getAiClient = () => {
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || '';
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY no está configurada en las variables de entorno.");
-  }
-  return new GoogleGenAI({ apiKey });
-};
+import { exportEquipmentInterventionsPDF } from '../utils/interventionsReport';
 
 interface TrackingViewProps {
   entries: MaintenanceEntry[];
@@ -21,183 +13,6 @@ interface TrackingViewProps {
   equipment: Equipment[];
   allowOperativeDateEdit?: boolean;
 }
-
-const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
-const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase tracking-wide mb-1";
-
-const ReportField = ({ label, value, onChange, placeholder, className = reportTextClass }: { label: string, value: string, onChange: (val: string) => void, placeholder: string, className?: string }) => {
-  const completedRegex = /\[COMPLETADO - .*?\]$/;
-  const isCompleted = completedRegex.test(value);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-
-  const toggleCompleted = () => {
-    if (isCompleted) {
-      onChange(value.replace(completedRegex, '').trim());
-    } else {
-      const dateStr = new Date().toLocaleDateString('es-AR');
-      const suffix = ` [COMPLETADO - ${dateStr}]`;
-      const newValue = value.trim() + suffix;
-      onChange(newValue);
-    }
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await transcribeAudio(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      alert("No se pudo acceder al micrófono. Verifique los permisos.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const transcribeAudio = async (blob: Blob) => {
-    setIsTranscribing(true);
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = async () => {
-        const base64Data = (reader.result as string).split(',')[1];
-        
-        try {
-          const ai = getAiClient();
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/webm",
-                      data: base64Data
-                    }
-                  },
-                  {
-                    text: "Analiza el archivo de audio. Transcribe el contenido de forma literal, pero corrigiendo errores gramaticales evidentes si el usuario titubea. IMPORTANTE: No añadas comentarios, ni introducciones, ni 'Aquí tienes la transcripción'. Salida: Devuelve ÚNICAMENTE el texto limpio."
-                  }
-                ]
-              }
-            ]
-          });
-
-          const text = response.text;
-          if (text) {
-            const cleanText = text.trim();
-            onChange((value ? value + " " : "") + cleanText);
-          }
-        } catch (genAiErr) {
-          console.error("Gemini Error:", genAiErr);
-          alert("Error en la transcripción con IA.");
-        } finally {
-          setIsTranscribing(false);
-        }
-      };
-    } catch (err) {
-      console.error("Error reading audio file:", err);
-      alert("Error al procesar el archivo de audio.");
-      setIsTranscribing(false);
-    }
-  };
-
-  return (
-    <div className="relative group">
-      <div className="flex justify-between items-center mb-1">
-        <label className={reportLabelClass}>{label}</label>
-        <div className="flex items-center gap-2">
-          {/* Voice Transcription Button */}
-          <div className="relative group/voice">
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isTranscribing}
-              className={`p-1 rounded-full transition-all flex items-center justify-center ${
-                isRecording 
-                  ? 'bg-red-500 text-white animate-pulse' 
-                  : isTranscribing 
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                    : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
-              }`}
-            >
-              {isTranscribing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : isRecording ? (
-                <MicOff className="w-3.5 h-3.5" />
-              ) : (
-                <Mic className="w-3.5 h-3.5" />
-              )}
-            </button>
-            <div className="absolute bottom-full right-0 mb-2 hidden group-hover/voice:block w-40 bg-slate-800 text-white text-[9px] p-2 rounded shadow-lg z-10 text-center">
-              {isRecording ? "Detener y transcribir" : "Dictar por voz (IA)"}
-              <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
-            </div>
-          </div>
-
-          {/* Completion Toggle */}
-          <div className="relative group/tooltip">
-            <button
-              onClick={toggleCompleted}
-              className={`p-0.5 rounded-full transition-all ${isCompleted ? 'text-red-600 bg-red-50' : 'text-slate-300 hover:text-red-500 hover:bg-slate-100'}`}
-            >
-              <CheckCircle className={`w-4 h-4 ${isCompleted ? 'fill-current' : ''}`} />
-            </button>
-            <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block w-48 bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-10 text-center">
-              Marca este ítem como revisado y finalizado agregando una firma de fecha.
-              <div className="absolute -bottom-1 right-2 w-2 h-2 bg-slate-800 rotate-45"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="relative">
-        <textarea
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className={`${className} ${isCompleted ? 'border-red-500 bg-red-50/10' : ''} ${isRecording ? 'ring-2 ring-red-500 border-red-500' : ''}`}
-          placeholder={isRecording ? "Escuchando..." : placeholder}
-        />
-        {isCompleted && (
-          <div className="absolute bottom-2 right-2 text-[9px] font-black text-red-600 bg-white/80 px-1.5 py-0.5 rounded border border-red-200 pointer-events-none uppercase tracking-wider shadow-sm backdrop-blur-sm">
-            Completado
-          </div>
-        )}
-        {isTranscribing && (
-          <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded">
-            <div className="flex items-center gap-2 text-blue-600 font-black text-[10px] uppercase tracking-widest">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Transcribiendo...
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
 
 const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equipment, allowOperativeDateEdit = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -218,22 +33,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   // State for in-memory edits of entries in CONFIRMACION state
   const [confirmationFormMap, setConfirmationFormMap] = useState<Record<string, { note: string; responsable: string; date: string }>>({});
-
-  // States for Technical Report Modal
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [currentReportEntry, setCurrentReportEntry] = useState<MaintenanceEntry | null>(null);
-  const [reportData, setReportData] = useState<Partial<TechnicalReport>>({
-    motor: '',
-    sistema_hidraulico: '',
-    sistema_electrico: '',
-    sistema_neumatico: '',
-    estructura: '',
-    cabina: '',
-    tren_rodante: '',
-    elementos_desgaste: '',
-    componentes_especificos: '',
-    observaciones: ''
-  });
   
   const today = new Date().toLocaleDateString('en-CA'); 
   const MAINTENANCE_GOAL = 90;
@@ -1011,119 +810,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
     doc.save(`${fileName}.pdf`);
   };
 
-  const handleExportReportPDF = () => {
-    if (!currentReportEntry) return;
-
-    const eq = equipment.find(e => e.id === currentReportEntry.equipo_id);
-    const doc = new jsPDF();
-    const todayStr = new Date().toLocaleDateString('es-AR');
-
-    // --- Header ---
-    doc.setFillColor(30, 41, 59); // Slate 800
-    doc.rect(0, 0, 210, 25, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('times', 'bold');
-    doc.setFontSize(22);
-    doc.text('GEyT', 14, 18); // Ajustado ligeramente
-    
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('INFORME TÉCNICO', 200, 13, { align: 'right' }); // Texto simplificado
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Fecha de Emisión: ${todayStr}`, 200, 19, { align: 'right' });
-
-    // --- Datos del Equipo ---
-    let startY = 35;
-    
-    doc.setFillColor(241, 245, 249); // Slate 100
-    doc.rect(14, startY, 182, 28, 'F');
-    doc.setDrawColor(203, 213, 225); // Slate 300
-    doc.rect(14, startY, 182, 28, 'S');
-
-    doc.setFontSize(10);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATOS DEL EQUIPO', 18, startY + 6);
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    // Fila 1
-    doc.text(`Interno:`, 18, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${currentReportEntry.equipo_id}`, 35, startY + 14);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Marca/Modelo:`, 70, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Hs Arrastre:`, 140, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 160, startY + 14);
-
-    // Fila 2
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Obra:`, 18, startY + 22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${currentReportEntry.obra_asignada || 'Sin asignar'}`, 35, startY + 22);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Ingreso:`, 70, startY + 22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
-
-    // --- Evaluación Técnica ---
-    startY += 38;
-    
-    const techData = [
-      ['Motor', reportData.motor || '-'],
-      ['Sistema Hidráulico', reportData.sistema_hidraulico || '-'],
-      ['Sistema Eléctrico', reportData.sistema_electrico || '-'],
-      ['Sistema Neumático', reportData.sistema_neumatico || '-'],
-      ['Estructura / Chasis', reportData.estructura || '-'],
-      ['Cabina / Operador', reportData.cabina || '-'],
-      ['Tren Rodante / Neumáticos', reportData.tren_rodante || '-'],
-      ['Elementos de Desgaste', reportData.elementos_desgaste || '-'],
-      ['Componentes Específicos', reportData.componentes_especificos || '-'],
-      ['Observaciones Finales', reportData.observaciones || '-']
-    ];
-
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('EVALUACIÓN TÉCNICA', 14, startY - 2);
-
-    autoTable(doc, {
-      startY: startY,
-      head: [['Sistema / Componente', 'Estado / Observaciones']],
-      body: techData,
-      theme: 'grid',
-      headStyles: { fillColor: [21, 128, 61], fontSize: 9, fontStyle: 'bold' },
-      columnStyles: {
-        0: { cellWidth: 50, fontStyle: 'bold', fillColor: [248, 250, 252] },
-        1: { cellWidth: 'auto' }
-      },
-      styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' }
-    });
-
-    // Se ha eliminado el bloque de Historial de Intervenciones
-
-    // --- Footer ---
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`Página ${i} de ${pageCount}`, 105, 290, { align: 'center' });
-    }
-
-    const fileName = `${currentReportEntry.equipo_id}_${todayStr.replace(/\//g, '-')}_informe_taller.pdf`;
-    doc.save(fileName);
-  };
-
   const matchedEquipment = useMemo(() => {
     const searchId = newEntry.interno.trim().toLowerCase();
     if (!searchId) return null;
@@ -1248,14 +934,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       finalDescripcion = `SOTT ${compTrim} ${provTrim}`.trim();
       targetStatus = 'COMPRAS';
     } else {
-      // Reparación
+      // Avance Diario: No debe cambiar el estado (se mantiene el estado actual)
       const textTrim = newActionText.trim();
       if (!textTrim) {
-        alert("Por favor describa la reparación efectuada.");
+        alert("Por favor describa el avance diario efectuado.");
         return;
       }
-      finalDescripcion = `Reparación: ${textTrim}`.trim();
-      targetStatus = 'REPARACION';
+      finalDescripcion = textTrim.toLowerCase().startsWith('avance') ? textTrim : `Avance: ${textTrim}`.trim();
+      targetStatus = ''; // No cambia de estado
     }
 
     setIsProcessing(true);
@@ -1331,69 +1017,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
       } finally {
         setIsProcessing(false);
       }
-    }
-  };
-
-  const handleOpenReport = (entry: MaintenanceEntry) => {
-    setCurrentReportEntry(entry);
-    
-    // Usar la función auxiliar segura
-    const existingReport = getExistingReport(entry);
-
-    if (existingReport) {
-      setReportData({
-        motor: existingReport.motor || '',
-        sistema_hidraulico: existingReport.sistema_hidraulico || '',
-        sistema_electrico: existingReport.sistema_electrico || '',
-        sistema_neumatico: existingReport.sistema_neumatico || '',
-        estructura: existingReport.estructura || '',
-        cabina: existingReport.cabina || '',
-        tren_rodante: existingReport.tren_rodante || '',
-        elementos_desgaste: existingReport.elementos_desgaste || '',
-        componentes_especificos: existingReport.componentes_especificos || '',
-        observaciones: existingReport.observaciones || ''
-      });
-    } else {
-      // Resetear formulario si no hay informe previo
-      setReportData({
-        motor: '',
-        sistema_hidraulico: '',
-        sistema_electrico: '',
-        sistema_neumatico: '',
-        estructura: '',
-        cabina: '',
-        tren_rodante: '',
-        elementos_desgaste: '',
-        componentes_especificos: '',
-        observaciones: ''
-      });
-    }
-    setShowReportModal(true);
-  };
-
-  const handleSaveReport = async () => {
-    if (!currentReportEntry) return;
-    setIsProcessing(true);
-    try {
-      const payload = {
-        ...reportData,
-        ingreso_id: currentReportEntry.id,
-        equipo_id: currentReportEntry.equipo_id
-      };
-
-      // Upsert: Si existe (unique constraint en ingreso_id), actualiza. Si no, inserta.
-      const { error } = await supabase
-        .from('informe_taller')
-        .upsert(payload, { onConflict: 'ingreso_id' });
-
-      if (error) throw error;
-
-      await refreshData();
-      setShowReportModal(false);
-    } catch (e) {
-      alert("Error guardando informe técnico: " + (e as any).message);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
@@ -1668,11 +1291,11 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                       <td className="px-4 py-4 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <button 
-                            onClick={() => handleOpenReport(entry)} 
-                            className={`p-1 rounded transition-colors ${hasReport ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-slate-300 hover:text-indigo-500'}`}
-                            title="Informe Técnico"
+                            onClick={() => exportEquipmentInterventionsPDF(entry, equipment)} 
+                            className="p-1.5 text-slate-400 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all"
+                            title="Carpeta de Arrastre"
                           >
-                            <ClipboardCheck className="w-5 h-5" />
+                            <FolderDown className="w-5 h-5 text-green-700" />
                           </button>
 
                           {isEditingFirst || isEditingEntry ? (
@@ -1841,198 +1464,15 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                                 </button>
                               </div>
                             </div>
-                          ) : selectedEntryId === entry.id ? (
-                            <div className="flex flex-col gap-3 bg-slate-50 p-3.5 rounded-xl border-2 border-green-600 animate-in zoom-in-95 shadow-xl">
-                              {/* Selector de camino */}
-                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
-                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                                  Tipo de Avance:
-                                </span>
-                                <div className="flex flex-wrap gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setActionCategory('pedido')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
-                                      actionCategory === 'pedido'
-                                        ? 'bg-amber-500 text-white shadow-md ring-2 ring-amber-300'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                                    }`}
-                                  >
-                                    <ShoppingCart className="w-3.5 h-3.5" />
-                                    <span>Pedido de repuestos</span>
-                                    <span className="text-[9px] opacity-80 font-normal">→ ESPERANDO REPUESTOS</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setActionCategory('sott')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
-                                      actionCategory === 'sott'
-                                        ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-300'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                                    }`}
-                                  >
-                                    <Wrench className="w-3.5 h-3.5" />
-                                    <span>SOTT</span>
-                                    <span className="text-[9px] opacity-80 font-normal">→ ESPERANDO REPUESTOS</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setActionCategory('reparacion')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
-                                      actionCategory === 'reparacion'
-                                        ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-300'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                                    }`}
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span>Reparación</span>
-                                    <span className="text-[9px] opacity-80 font-normal">→ EN REPARACIÓN</span>
-                                  </button>
-                                </div>
-                                <button 
-                                  onClick={resetActionForm} 
-                                  className="text-slate-400 hover:text-slate-700 p-1 rounded-md transition-colors ml-auto"
-                                  title="Cerrar"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-
-                              {/* Formulario según opción */}
-                              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
-                                {actionCategory === 'pedido' && (
-                                  <>
-                                    <div className="md:col-span-2">
-                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                        N° de RC:
-                                      </label>
-                                      <input 
-                                        autoFocus
-                                        type="text" 
-                                        value={rcNumber} 
-                                        onChange={e => setRcNumber(e.target.value)} 
-                                        placeholder="Ej: 1234" 
-                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500" 
-                                      />
-                                    </div>
-                                    <div className="md:col-span-4">
-                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                        Compartimiento(s):
-                                      </label>
-                                      <input 
-                                        type="text" 
-                                        value={compartimientos} 
-                                        onChange={e => setCompartimientos(e.target.value)} 
-                                        placeholder="Ej: motor, transmisión, sist. eléctrico..." 
-                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500" 
-                                      />
-                                    </div>
-                                  </>
-                                )}
-
-                                {actionCategory === 'sott' && (
-                                  <>
-                                    <div className="md:col-span-3">
-                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                        Componente:
-                                      </label>
-                                      <input 
-                                        autoFocus
-                                        type="text" 
-                                        value={sottComponente} 
-                                        onChange={e => setSottComponente(e.target.value)} 
-                                        placeholder="Ej: Bomba hidráulica, Cilindro..." 
-                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500" 
-                                      />
-                                    </div>
-                                    <div className="md:col-span-3">
-                                      <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                        Proveedor:
-                                      </label>
-                                      <input 
-                                        type="text" 
-                                        value={sottProveedor} 
-                                        onChange={e => setSottProveedor(e.target.value)} 
-                                        placeholder="Ej: Finning, Turbos del Sur..." 
-                                        className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500" 
-                                      />
-                                    </div>
-                                  </>
-                                )}
-
-                                {actionCategory === 'reparacion' && (
-                                  <div className="md:col-span-6">
-                                    <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                      Descripción de Reparación:
-                                    </label>
-                                    <input 
-                                      autoFocus
-                                      type="text" 
-                                      value={newActionText} 
-                                      onChange={e => setNewActionText(e.target.value)} 
-                                      placeholder="Describa la reparación realizada libremente..." 
-                                      className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-emerald-500" 
-                                    />
-                                  </div>
-                                )}
-
-                                <div className="md:col-span-2">
-                                  <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                    Mecánico / Resp.:
-                                  </label>
-                                  <input 
-                                    type="text" 
-                                    value={newActionResponsable} 
-                                    onChange={e => setNewActionResponsable(e.target.value)} 
-                                    placeholder="Mecánico" 
-                                    className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500" 
-                                  />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <label className="block text-[9px] font-black uppercase text-slate-500 mb-1">
-                                    Fecha:
-                                  </label>
-                                  <input 
-                                    type="date" 
-                                    value={newActionDate} 
-                                    onChange={e => setNewActionDate(e.target.value)} 
-                                    className="w-full text-xs p-2 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500" 
-                                  />
-                                </div>
-                                <div className="md:col-span-2 flex items-center gap-1.5">
-                                  <button 
-                                    type="button"
-                                    onClick={() => handleAddAction(entry.id)} 
-                                    disabled={isProcessing} 
-                                    className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md disabled:bg-slate-300 transition-all"
-                                  >
-                                    <Save className="w-3.5 h-3.5" />
-                                    <span>Guardar</span>
-                                  </button>
-                                  <button 
-                                    type="button"
-                                    onClick={resetActionForm} 
-                                    className="text-slate-500 p-2 hover:bg-slate-200 rounded-lg transition-colors"
-                                    title="Cancelar"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Vista previa de lo que se guardará */}
-                              <div className="text-[11px] text-slate-500 bg-white p-2 rounded-lg border border-slate-200 flex items-center gap-2">
-                                <span className="font-bold text-slate-700">Vista previa del avance:</span>
-                                <span className="font-mono text-slate-800">
-                                  {actionCategory === 'pedido' && `Pedido de repuestos RC: ${rcNumber.trim() || '[RC]'} ${compartimientos.trim() || '[Compartimientos]'}`}
-                                  {actionCategory === 'sott' && `SOTT ${sottComponente.trim() || '[Componente]'} ${sottProveedor.trim() || '[Proveedor]'}`}
-                                  {actionCategory === 'reparacion' && `Reparación: ${newActionText.trim() || '[Texto de reparación]'}`}
-                                </span>
-                              </div>
-                            </div>
                           ) : (
                             <div className="flex items-center gap-3">
-                              <button onClick={() => setSelectedEntryId(entry.id)} className="flex items-center gap-1.5 text-[10px] font-black text-green-700 hover:bg-green-700 hover:text-white px-4 py-2 rounded-full border-2 border-green-200 transition-all uppercase tracking-widest w-fit shadow-sm">
+                              <button 
+                                onClick={() => {
+                                  resetActionForm();
+                                  setSelectedEntryId(entry.id);
+                                }} 
+                                className="flex items-center gap-1.5 text-[10px] font-black text-green-700 hover:bg-green-700 hover:text-white px-4 py-2 rounded-full border-2 border-green-200 transition-all uppercase tracking-widest w-fit shadow-sm"
+                              >
                                 <Plus className="w-3 h-3" /> Añadir Avance
                               </button>
                               
@@ -2097,67 +1537,6 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
             <div className="flex gap-3">
               <button onClick={() => setDeleteConfirmId(null)} className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">Cancelar</button>
               <button onClick={confirmDeleteEntry} disabled={isProcessing} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm shadow-lg disabled:bg-slate-300">{isProcessing ? '...' : 'Eliminar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Informe Técnico */}
-      {showReportModal && currentReportEntry && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
-            <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold flex items-center gap-3">
-                  <ClipboardCheck className="w-6 h-6 text-green-400" />
-                  Informe Técnico de Taller
-                </h2>
-                <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">
-                  Interno: {currentReportEntry.equipo_id} | Ingreso: {formatDateDisplay(currentReportEntry.fecha_ingreso)}
-                </p>
-              </div>
-              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <ReportField label="Motor" value={reportData.motor || ''} onChange={(val: string) => setReportData({...reportData, motor: val})} placeholder="Estado del motor, fugas, ruidos..." />
-                <ReportField label="Sistema Hidráulico" value={reportData.sistema_hidraulico || ''} onChange={(val: string) => setReportData({...reportData, sistema_hidraulico: val})} placeholder="Cilindros, mangueras, bombas..." />
-                <ReportField label="Sistema Eléctrico" value={reportData.sistema_electrico || ''} onChange={(val: string) => setReportData({...reportData, sistema_electrico: val})} placeholder="Baterías, arranque, luces..." />
-                <ReportField label="Sistema Neumático" value={reportData.sistema_neumatico || ''} onChange={(val: string) => setReportData({...reportData, sistema_neumatico: val})} placeholder="Compresor, válvulas, fugas aire..." />
-                <ReportField label="Estructura / Chasis" value={reportData.estructura || ''} onChange={(val: string) => setReportData({...reportData, estructura: val})} placeholder="Fisuras, soldaduras, deformaciones..." />
-                <ReportField label="Cabina / Operador" value={reportData.cabina || ''} onChange={(val: string) => setReportData({...reportData, cabina: val})} placeholder="Instrumentos, asiento, vidrios..." />
-                <ReportField label="Tren Rodante / Neumáticos" value={reportData.tren_rodante || ''} onChange={(val: string) => setReportData({...reportData, tren_rodante: val})} placeholder="Desgaste orugas, estado cubiertas..." />
-                <ReportField label="Elementos de Desgaste" value={reportData.elementos_desgaste || ''} onChange={(val: string) => setReportData({...reportData, elementos_desgaste: val})} placeholder="Cuchillas, dientes, pernos..." />
-                <ReportField label="Componentes Específicos" value={reportData.componentes_especificos || ''} onChange={(val: string) => setReportData({...reportData, componentes_especificos: val})} placeholder="Otros sistemas especiales..." />
-              </div>
-              <div className="mt-6">
-                <ReportField 
-                  label="Observaciones Generales" 
-                  value={reportData.observaciones || ''} 
-                  onChange={(val: string) => setReportData({...reportData, observaciones: val})} 
-                  placeholder="Conclusiones generales del estado del equipo..." 
-                  className="w-full bg-white border-2 border-slate-300 rounded p-4 text-sm text-slate-900 h-32 outline-none focus:border-green-500 font-medium resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="p-6 bg-white border-t border-slate-200 flex justify-between gap-3 items-center">
-              <button 
-                onClick={handleExportReportPDF} 
-                className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md transition-all flex items-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Exportar PDF
-              </button>
-              
-              <div className="flex gap-3">
-                <button onClick={() => setShowReportModal(false)} className="px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Cancelar</button>
-                <button onClick={handleSaveReport} disabled={isProcessing} className="px-8 py-3 bg-green-700 text-white font-bold rounded-xl hover:bg-green-800 shadow-lg transition-all disabled:bg-slate-300 flex items-center gap-2">
-                  <Save className="w-5 h-5" />
-                  {isProcessing ? 'Guardando...' : 'Guardar Informe'}
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -2341,6 +1720,266 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           </div>
         </div>
       )}
+
+      {/* Modal / PopUp de Añadir Avance (Tipo de Avance) */}
+      {selectedEntryId && (() => {
+        const selectedEntry = entries.find(e => e.id === selectedEntryId);
+        const selectedEq = equipment.find(e => e.id === selectedEntry?.equipo_id);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 text-green-700 rounded-xl">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">
+                      Añadir Avance de Taller
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Equipo: <strong className="text-slate-800 font-mono">{selectedEntry?.equipo_id}</strong>
+                      {selectedEq ? ` (${selectedEq.tipo} ${selectedEq.marca} ${selectedEq.modelo})` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetActionForm}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+                  title="Cerrar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-5">
+                {/* Selector de camino / Tipo de Avance */}
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-500 tracking-wider mb-2">
+                    Seleccione el Tipo de Avance:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Opción 1: Pedido de repuestos */}
+                    <button
+                      type="button"
+                      onClick={() => setActionCategory('pedido')}
+                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col gap-1 ${
+                        actionCategory === 'pedido'
+                          ? 'border-amber-500 bg-amber-50/70 shadow-md ring-2 ring-amber-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${actionCategory === 'pedido' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                          <ShoppingCart className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-black text-slate-800">Pedido de repuestos</span>
+                      </div>
+                      <span className="text-[10px] text-amber-700 font-bold mt-1">
+                        → Estado: ESPERANDO REPUESTOS
+                      </span>
+                    </button>
+
+                    {/* Opción 2: SOTT */}
+                    <button
+                      type="button"
+                      onClick={() => setActionCategory('sott')}
+                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col gap-1 ${
+                        actionCategory === 'sott'
+                          ? 'border-indigo-500 bg-indigo-50/70 shadow-md ring-2 ring-indigo-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${actionCategory === 'sott' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                          <Wrench className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-black text-slate-800">SOTT</span>
+                      </div>
+                      <span className="text-[10px] text-indigo-700 font-bold mt-1">
+                        → Estado: ESPERANDO REPUESTOS
+                      </span>
+                    </button>
+
+                    {/* Opción 3: Avance Diario */}
+                    <button
+                      type="button"
+                      onClick={() => setActionCategory('reparacion')}
+                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col gap-1 ${
+                        actionCategory === 'reparacion'
+                          ? 'border-emerald-500 bg-emerald-50/70 shadow-md ring-2 ring-emerald-200'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${actionCategory === 'reparacion' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                          <Check className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-black text-slate-800">Avance Diario</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-700 font-bold mt-1">
+                        → Conserva estado actual
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Formulario según categoría seleccionada */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3.5">
+                  {actionCategory === 'pedido' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                      <div className="sm:col-span-4">
+                        <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                          N° de RC: <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={rcNumber}
+                          onChange={e => setRcNumber(e.target.value)}
+                          placeholder="Ej: 1234"
+                          className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                        />
+                      </div>
+                      <div className="sm:col-span-8">
+                        <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                          Compartimiento(s): <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={compartimientos}
+                          onChange={e => setCompartimientos(e.target.value)}
+                          placeholder="Ej: motor, transmisión, sist. eléctrico..."
+                          className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {actionCategory === 'sott' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                          Componente: <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={sottComponente}
+                          onChange={e => setSottComponente(e.target.value)}
+                          placeholder="Ej: Bomba hidráulica, Cilindro de levante..."
+                          className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                          Proveedor: <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={sottProveedor}
+                          onChange={e => setSottProveedor(e.target.value)}
+                          placeholder="Ej: Finning, Turbos del Sur..."
+                          className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {actionCategory === 'reparacion' && (
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                        Descripción de Avance Diario: <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        autoFocus
+                        rows={3}
+                        value={newActionText}
+                        onChange={e => setNewActionText(e.target.value)}
+                        placeholder="Describa el trabajo o avance realizado en el equipo..."
+                        className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                      />
+                    </div>
+                  )}
+
+                  {/* Responsable y Fecha */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-200/60">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                        Mecánico / Responsable:
+                      </label>
+                      <input
+                        type="text"
+                        value={newActionResponsable}
+                        onChange={e => setNewActionResponsable(e.target.value)}
+                        placeholder="Ej: Juan Pérez / Taller"
+                        className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">
+                        Fecha del Avance:
+                      </label>
+                      <input
+                        type="date"
+                        value={newActionDate}
+                        onChange={e => setNewActionDate(e.target.value)}
+                        className="w-full text-xs p-2.5 rounded-lg border-2 border-slate-300 font-bold bg-white text-slate-900 outline-none focus:border-slate-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Previsualización del texto final */}
+                <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 text-xs">
+                  <span className="font-black text-amber-900 uppercase text-[10px] tracking-wider block mb-1">
+                    Vista previa de la acción que se registrará:
+                  </span>
+                  <div className="font-mono text-slate-800 font-semibold bg-white p-2 rounded-lg border border-amber-200">
+                    {actionCategory === 'pedido' && `Pedido de repuestos RC: ${rcNumber.trim() || '[RC]'} ${compartimientos.trim() || '[Compartimiento(s)]'}`}
+                    {actionCategory === 'sott' && `SOTT ${sottComponente.trim() || '[Componente]'} ${sottProveedor.trim() || '[Proveedor]'}`}
+                    {actionCategory === 'reparacion' && (newActionText.trim() ? (newActionText.toLowerCase().startsWith('avance') ? newActionText.trim() : `Avance: ${newActionText.trim()}`) : 'Avance: [Descripción del avance]')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end gap-2.5 px-6 py-4 bg-slate-50 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={resetActionForm}
+                  disabled={isProcessing}
+                  className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-bold border border-slate-300 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddAction(selectedEntryId)}
+                  disabled={isProcessing}
+                  className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md flex items-center gap-2 disabled:bg-slate-300"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar Avance</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

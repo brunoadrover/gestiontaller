@@ -1,20 +1,12 @@
 
 import React, { useState, useMemo, useRef } from 'react';
 import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
-import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Mic, MicOff, Loader2, BarChart3 } from 'lucide-react';
+import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, BarChart3, FolderDown } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabase';
-import { GoogleGenAI } from "@google/genai";
-
-const getAiClient = () => {
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || '';
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY no está configurada en las variables de entorno.");
-  }
-  return new GoogleGenAI({ apiKey });
-};
+import { exportEquipmentInterventionsPDF } from '../utils/interventionsReport';
 
 interface HistoryViewProps {
   entries: MaintenanceEntry[];
@@ -22,164 +14,9 @@ interface HistoryViewProps {
   equipment: Equipment[];
 }
 
-const reportTextClass = "w-full bg-slate-50 border border-slate-300 rounded p-2 text-xs text-slate-900 h-20 outline-none focus:ring-2 focus:ring-green-500 font-medium resize-none";
-const reportLabelClass = "block text-[10px] font-black text-slate-500 uppercase tracking-wide mb-1";
 
-const ReportField = ({ label, value, onChange, placeholder, className = reportTextClass }: { label: string, value: string, onChange: (val: string) => void, placeholder: string, className?: string }) => {
-  const completedRegex = /\[COMPLETADO - .*?\]$/;
-  const isCompleted = completedRegex.test(value);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
-  const toggleCompleted = () => {
-    if (isCompleted) {
-      onChange(value.replace(completedRegex, '').trim());
-    } else {
-      const dateStr = new Date().toLocaleDateString('es-AR');
-      const suffix = ` [COMPLETADO - ${dateStr}]`;
-      const newValue = value.trim() + suffix;
-      onChange(newValue);
-    }
-  };
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await transcribeAudio(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      alert("No se pudo acceder al micrófono. Verifique los permisos.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const transcribeAudio = async (blob: Blob) => {
-    setIsTranscribing(true);
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = async () => {
-        const base64Data = (reader.result as string).split(',')[1];
-        
-        try {
-          const ai = getAiClient();
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/webm",
-                      data: base64Data
-                    }
-                  },
-                  {
-                    text: "Analiza el archivo de audio. Transcribe el contenido de forma literal, pero corrigiendo errores gramaticales evidentes si el usuario titubea. IMPORTANTE: No añadas comentarios, ni introducciones, ni 'Aquí tienes la transcripción'. Salida: Devuelve ÚNICAMENTE el texto limpio."
-                  }
-                ]
-              }
-            ]
-          });
-
-          const text = response.text;
-          if (text) {
-            const cleanText = text.trim();
-            onChange((value ? value + " " : "") + cleanText);
-          }
-        } catch (genAiErr) {
-          console.error("Gemini Error:", genAiErr);
-          alert("Error en la transcripción con IA.");
-        } finally {
-          setIsTranscribing(false);
-        }
-      };
-    } catch (err) {
-      console.error("Error reading audio file:", err);
-      alert("Error al procesar el archivo de audio.");
-      setIsTranscribing(false);
-    }
-  };
-
-  return (
-    <div className="relative group">
-      <div className="flex justify-between items-center mb-1">
-        <label className={reportLabelClass}>{label}</label>
-        <div className="flex items-center gap-2">
-          <div className="relative group/voice">
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isTranscribing}
-              className={`p-1 rounded-full transition-all flex items-center justify-center ${
-                isRecording 
-                  ? 'bg-red-500 text-white animate-pulse' 
-                  : isTranscribing 
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                    : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
-              }`}
-            >
-              {isTranscribing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : isRecording ? (
-                <MicOff className="w-3.5 h-3.5" />
-              ) : (
-                <Mic className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </div>
-
-          <div className="relative group/tooltip">
-            <button
-              onClick={toggleCompleted}
-              className={`p-0.5 rounded-full transition-all ${isCompleted ? 'text-red-600 bg-red-50' : 'text-slate-300 hover:text-red-500 hover:bg-slate-100'}`}
-            >
-              <CheckCircle className={`w-4 h-4 ${isCompleted ? 'fill-current' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </div>
-      <div className="relative">
-        <textarea
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className={`${className} ${isCompleted ? 'border-red-500 bg-red-50/10' : ''} ${isRecording ? 'ring-2 ring-red-500 border-red-500' : ''}`}
-          placeholder={isRecording ? "Escuchando..." : placeholder}
-        />
-        {isCompleted && (
-          <div className="absolute bottom-2 right-2 text-[9px] font-black text-red-600 bg-white/80 px-1.5 py-0.5 rounded border border-red-200 pointer-events-none uppercase tracking-wider shadow-sm backdrop-blur-sm">
-            Completado
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
 
 const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipment }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -192,21 +29,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [selectedEntryForActions, setSelectedEntryForActions] = useState<MaintenanceEntry | null>(null);
 
-  const [showReportModal, setShowReportModal] = useState(false);
   const [showExportSummaryChoice, setShowExportSummaryChoice] = useState(false);
-  const [currentReportEntry, setCurrentReportEntry] = useState<MaintenanceEntry | null>(null);
-  const [reportData, setReportData] = useState<Partial<TechnicalReport>>({
-    motor: '',
-    sistema_hidraulico: '',
-    sistema_electrico: '',
-    sistema_neumatico: '',
-    estructura: '',
-    cabina: '',
-    tren_rodante: '',
-    elementos_desgaste: '',
-    componentes_especificos: '',
-    observaciones: ''
-  });
   
   const today = new Date().toLocaleDateString('en-CA'); 
   const MAINTENANCE_GOAL = 90;
@@ -546,116 +369,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     }
 
     doc.save(`${fileName}.pdf`);
-  };
-
-  const handleExportReportPDF = () => {
-    if (!currentReportEntry) return;
-
-    const eq = equipment.find(e => e.id === currentReportEntry.equipo_id);
-    const doc = new jsPDF();
-    const todayStr = new Date().toLocaleDateString('es-AR');
-
-    doc.setFillColor(30, 41, 59); 
-    doc.rect(0, 0, 210, 25, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('times', 'bold');
-    doc.setFontSize(22);
-    doc.text('GEyT', 14, 18); 
-    
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('INFORME TÉCNICO', 200, 13, { align: 'right' }); 
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Fecha de Emisión: ${todayStr}`, 200, 19, { align: 'right' });
-
-    let startY = 35;
-    
-    doc.setFillColor(241, 245, 249); 
-    doc.rect(14, startY, 182, 28, 'F');
-    doc.setDrawColor(203, 213, 225); 
-    doc.rect(14, startY, 182, 28, 'S');
-
-    doc.setFontSize(10);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATOS DEL EQUIPO', 18, startY + 6);
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text(`Interno:`, 18, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${currentReportEntry.equipo_id}`, 35, startY + 14);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Marca/Modelo:`, 70, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.marca || ''} ${eq?.modelo || ''}`, 95, startY + 14);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Hs Arrastre:`, 130, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.horas?.toLocaleString() || '-'}`, 150, startY + 14);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Año:`, 172, startY + 14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${eq?.year || 'N/D'}`, 182, startY + 14);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Obra:`, 18, startY + 22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${currentReportEntry.obra_asignada || 'Sin asignar'}`, 35, startY + 22);
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Ingreso:`, 70, startY + 22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${formatDateDisplay(currentReportEntry.fecha_ingreso)}`, 95, startY + 22);
-
-    startY += 38;
-    
-    const techData = [
-      ['Motor', reportData.motor || '-'],
-      ['Sistema Hidráulico', reportData.sistema_hidraulico || '-'],
-      ['Sistema Eléctrico', reportData.sistema_electrico || '-'],
-      ['Sistema Neumático', reportData.sistema_neumatico || '-'],
-      ['Estructura / Chasis', reportData.estructura || '-'],
-      ['Cabina / Operador', reportData.cabina || '-'],
-      ['Tren Rodante / Neumáticos', reportData.tren_rodante || '-'],
-      ['Elementos de Desgaste', reportData.elementos_desgaste || '-'],
-      ['Componentes Específicos', reportData.componentes_especificos || '-'],
-      ['Observaciones Finales', reportData.observaciones || '-']
-    ];
-
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('EVALUACIÓN TÉCNICA', 14, startY - 2);
-
-    autoTable(doc, {
-      startY: startY,
-      head: [['Sistema / Componente', 'Estado / Observaciones']],
-      body: techData,
-      theme: 'grid',
-      headStyles: { fillColor: [21, 128, 61], fontSize: 9, fontStyle: 'bold' },
-      columnStyles: {
-        0: { cellWidth: 50, fontStyle: 'bold', fillColor: [248, 250, 252] },
-        1: { cellWidth: 'auto' }
-      },
-      styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' }
-    });
-
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`Página ${i} de ${pageCount}`, 105, 290, { align: 'center' });
-    }
-
-    const fileName = `${currentReportEntry.equipo_id}_${todayStr.replace(/\//g, '-')}_informe_taller.pdf`;
-    doc.save(fileName);
   };
 
   const handleExportManagementSummary = () => {
@@ -1086,52 +799,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
     setShowExportSummaryChoice(false);
   };
 
-  const handleOpenReport = (entry: MaintenanceEntry) => {
-    setCurrentReportEntry(entry);
-    const existingReport = getExistingReport(entry);
-    if (existingReport) {
-      setReportData({
-        motor: existingReport.motor || '',
-        sistema_hidraulico: existingReport.sistema_hidraulico || '',
-        sistema_electrico: existingReport.sistema_electrico || '',
-        sistema_neumatico: existingReport.sistema_neumatico || '',
-        estructura: existingReport.estructura || '',
-        cabina: existingReport.cabina || '',
-        tren_rodante: existingReport.tren_rodante || '',
-        elementos_desgaste: existingReport.elementos_desgaste || '',
-        componentes_especificos: existingReport.componentes_especificos || '',
-        observaciones: existingReport.observaciones || ''
-      });
-    } else {
-      setReportData({
-        motor: '', sistema_hidraulico: '', sistema_electrico: '', sistema_neumatico: '', estructura: '',
-        cabina: '', tren_rodante: '', elementos_desgaste: '', componentes_especificos: '', observaciones: ''
-      });
-    }
-    setShowReportModal(true);
-  };
-
-  const handleSaveReport = async () => {
-    if (!currentReportEntry) return;
-    setIsProcessing(true);
-    try {
-      const { error } = await supabase
-        .from('informe_taller')
-        .upsert([{
-          ingreso_id: currentReportEntry.id,
-          ...reportData
-        }], { onConflict: 'ingreso_id' });
-
-      if (error) throw error;
-      await refreshData();
-      setShowReportModal(false);
-    } catch (e) {
-      alert("Error guardando informe: " + (e as any).message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const handleSaveEditEntry = async (entryId: string) => {
     setIsProcessing(true);
     try {
@@ -1455,7 +1122,13 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                         ) : (
                           <>
                             <button onClick={() => { setSelectedEntryForActions(entry); setShowActionsModal(true); }} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Historial de Avances"><Clock className="w-4 h-4" /></button>
-                            <button onClick={() => handleOpenReport(entry)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="Informe Técnico"><FileText className="w-4 h-4" /></button>
+                            <button 
+                              onClick={() => exportEquipmentInterventionsPDF(entry, equipment)} 
+                              className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all" 
+                              title="Carpeta de Arrastre"
+                            >
+                              <FolderDown className="w-4 h-4 text-green-600" />
+                            </button>
                             <button onClick={() => { setEditingEntryId(entry.id); setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas || '', fecha_ingreso: entry.fecha_ingreso, fecha_salida: entry.fecha_salida || '', observaciones: entry.observaciones || '' }); }} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all"><Edit2 className="w-4 h-4" /></button>
                             <button onClick={() => setDeleteConfirmId(entry.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
                           </>
@@ -1476,52 +1149,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           </table>
         </div>
       </div>
-
-      {showReportModal && currentReportEntry && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-white/20">
-            <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <div className="px-3 h-12 min-w-12 bg-green-600 rounded-2xl flex items-center justify-center font-black text-base shadow-lg shadow-green-900/40">
-                  {currentReportEntry.equipo_id}
-                </div>
-                <div>
-                  <h3 className="text-xl font-black uppercase tracking-tighter">Informe Técnico de Taller</h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Evaluación de Sistemas y Componentes</p>
-                </div>
-              </div>
-              <button onClick={() => setShowReportModal(false)} className="p-2 hover:bg-slate-800 rounded-full transition-all"><X className="w-6 h-6" /></button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <ReportField label="Motor / Transmisión" value={reportData.motor || ''} onChange={(val: string) => setReportData({...reportData, motor: val})} placeholder="Estado de motor, fugas, ruidos, niveles..." />
-                <ReportField label="Sistema Hidráulico" value={reportData.sistema_hidraulico || ''} onChange={(val: string) => setReportData({...reportData, sistema_hidraulico: val})} placeholder="Bombas, mangueras, cilindros, mandos..." />
-                <ReportField label="Sistema Eléctrico" value={reportData.sistema_electrico || ''} onChange={(val: string) => setReportData({...reportData, sistema_electrico: val})} placeholder="Baterías, alternador, luces, sensores..." />
-                <ReportField label="Sistema Neumático" value={reportData.sistema_neumatico || ''} onChange={(val: string) => setReportData({...reportData, sistema_neumatico: val})} placeholder="Compresor, válvulas, fugas aire..." />
-                <ReportField label="Estructura / Chasis" value={reportData.estructura || ''} onChange={(val: string) => setReportData({...reportData, estructura: val})} placeholder="Soldaduras, fisuras, pasadores, bujes..." />
-                <ReportField label="Cabina / Mandos" value={reportData.cabina || ''} onChange={(val: string) => setReportData({...reportData, cabina: val})} placeholder="Asiento, cristales, aire acond., controles..." />
-                <ReportField label="Tren Rodante / Neumáticos" value={reportData.tren_rodante || ''} onChange={(val: string) => setReportData({...reportData, tren_rodante: val})} placeholder="Cadenas, rodillos, cubiertas, llantas..." />
-                <ReportField label="Elementos de Desgaste" value={reportData.elementos_desgaste || ''} onChange={(val: string) => setReportData({...reportData, elementos_desgaste: val})} placeholder="Cuchillas, dientes, calzas, protecciones..." />
-                <ReportField label="Componentes Específicos" value={reportData.componentes_especificos || ''} onChange={(val: string) => setReportData({...reportData, componentes_especificos: val})} placeholder="Martillo, balde, pluma, quinta rueda..." />
-                <ReportField label="Observaciones Finales" value={reportData.observaciones || ''} onChange={(val: string) => setReportData({...reportData, observaciones: val})} placeholder="Resumen general del estado del equipo..." />
-              </div>
-            </div>
-
-            <div className="p-6 bg-white border-t border-slate-100 flex justify-between items-center">
-              <button onClick={handleExportReportPDF} className="flex items-center gap-2 px-6 py-3 bg-slate-800 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-900 transition-all shadow-xl">
-                <Download className="w-4 h-4" /> Descargar PDF
-              </button>
-              <div className="flex gap-3">
-                <button onClick={() => setShowReportModal(false)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">Cerrar</button>
-                <button onClick={handleSaveReport} disabled={isProcessing} className="px-8 py-3 bg-green-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-green-800 transition-all shadow-xl shadow-green-900/20 disabled:bg-slate-300">
-                  {isProcessing ? 'Guardando...' : 'Guardar Informe'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showActionsModal && selectedEntryForActions && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
