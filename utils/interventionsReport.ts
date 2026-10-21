@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { MaintenanceEntry, Equipment, TechnicalReport } from '../types';
+import { MaintenanceEntry, Equipment } from '../types';
 import { 
   getDiffDays, 
   formatDateDisplay, 
@@ -266,68 +266,6 @@ export const exportEquipmentInterventionsPDF = (
     }
   });
 
-  // Si tiene informe técnico previo registrado (informe_taller), incluir una tabla resumen de sistemas
-  let existingReport: TechnicalReport | null = null;
-  if (entry.informe_taller) {
-    if (Array.isArray(entry.informe_taller) && entry.informe_taller.length > 0) {
-      existingReport = entry.informe_taller[0];
-    } else if (!Array.isArray(entry.informe_taller)) {
-      existingReport = entry.informe_taller as TechnicalReport;
-    }
-  }
-
-  if (existingReport) {
-    const techItems = [
-      ['Motor', existingReport.motor],
-      ['Sistema Hidráulico', existingReport.sistema_hidraulico],
-      ['Sistema Eléctrico', existingReport.sistema_electrico],
-      ['Sistema Neumático', existingReport.sistema_neumatico],
-      ['Estructura / Chasis', existingReport.estructura],
-      ['Cabina / Operador', existingReport.cabina],
-      ['Tren Rodante / Neumáticos', existingReport.tren_rodante],
-      ['Elementos de Desgaste', existingReport.elementos_desgaste],
-      ['Componentes Específicos', existingReport.componentes_especificos],
-      ['Observaciones Técnicas', existingReport.observaciones]
-    ].filter(([_, val]) => val && val.trim() !== '' && val !== '-');
-
-    if (techItems.length > 0) {
-      const finalY = (doc as any).lastAutoTable?.finalY || 180;
-      let nextStartY = finalY + 8;
-      
-      // Si queda poco espacio en la página, crear una nueva página
-      if (nextStartY > 240) {
-        doc.addPage();
-        nextStartY = 20;
-      }
-
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text('EVALUACIÓN TÉCNICA DE COMPONENTES (REGISTRO TÉCNICO)', 14, nextStartY);
-
-      autoTable(doc, {
-        startY: nextStartY + 2,
-        head: [['Sistema / Componente', 'Estado y Observaciones Técnicas']],
-        body: techItems,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [51, 65, 85],
-          textColor: [255, 255, 255],
-          fontSize: 8,
-          fontStyle: 'bold'
-        },
-        columnStyles: {
-          0: { cellWidth: 50, fontStyle: 'bold', fillColor: [248, 250, 252] },
-          1: { cellWidth: 'auto' }
-        },
-        styles: {
-          fontSize: 8,
-          cellPadding: 2.5,
-          overflow: 'linebreak'
-        }
-      });
-    }
-  }
 
   // --- FOOTER CON PAGINACIÓN ---
   const pageCount = (doc as any).internal.getNumberOfPages();

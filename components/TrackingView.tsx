@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
+import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
 import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package, FolderDown } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -106,17 +106,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
   const testingKeywords = ['prueba', 'probar', 'prueva'];
 
-  // --- HELPER PARA EXTRAER INFORME (Array u Objeto) ---
-  const getExistingReport = (entry: MaintenanceEntry): TechnicalReport | null => {
-    if (!entry.informe_taller) return null;
-    
-    if (Array.isArray(entry.informe_taller)) {
-      return entry.informe_taller.length > 0 ? entry.informe_taller[0] : null;
-    }
-    
-    // Si es un objeto único (no array)
-    return entry.informe_taller as TechnicalReport;
-  };
+
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
@@ -1186,9 +1176,7 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                 const firstAction = actions[0];
                 const isEditingFirst = editingActionId === firstAction?.id;
                 const isEditingEntry = editingEntryId === entry.id;
-                
-                // Usar el helper para verificar si hay reporte
-                const hasReport = !!getExistingReport(entry);
+
                 
                 const nextActionForFirst = actions[1];
                 const firstActionEndDate = nextActionForFirst 

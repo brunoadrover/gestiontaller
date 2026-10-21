@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { MaintenanceEntry, Equipment, MaintenanceAction, TechnicalReport } from '../types';
+import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
 import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, BarChart3, FolderDown } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -85,13 +85,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   const repuestoKeywords = ['pedido', 'repuesto', 'terceros', 'compra', 'adquisición', 'pendiente', 'insumo', 'falta'];
   const testingKeywords = ['prueba', 'probar', 'prueva'];
 
-  const getExistingReport = (entry: MaintenanceEntry): TechnicalReport | null => {
-    if (!entry.informe_taller) return null;
-    if (Array.isArray(entry.informe_taller)) {
-      return entry.informe_taller.length > 0 ? entry.informe_taller[0] : null;
-    }
-    return entry.informe_taller as TechnicalReport;
-  };
+
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
