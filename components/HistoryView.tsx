@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, BarChart3, FolderDown } from 'lucide-react';
+import { MaintenanceEntry, Equipment, MaintenanceAction, CostoRealIntervencion } from '../types';
+import { Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, BarChart3, FolderDown, Calculator } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabase';
 import { exportEquipmentInterventionsPDF } from '../utils/interventionsReport';
+import { OperativeCostModal } from './OperativeCostModal';
 
 interface HistoryViewProps {
   entries: MaintenanceEntry[];
@@ -30,6 +31,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
   const [selectedEntryForActions, setSelectedEntryForActions] = useState<MaintenanceEntry | null>(null);
 
   const [showExportSummaryChoice, setShowExportSummaryChoice] = useState(false);
+  const [showCostModal, setShowCostModal] = useState(false);
+  const [entryForCostModal, setEntryForCostModal] = useState<MaintenanceEntry | null>(null);
   
   const today = new Date().toLocaleDateString('en-CA'); 
   const MAINTENANCE_GOAL = 90;
@@ -1123,6 +1126,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
                             >
                               <FolderDown className="w-4 h-4 text-green-600" />
                             </button>
+                            <button
+                              onClick={() => {
+                                setEntryForCostModal(entry);
+                                setShowCostModal(true);
+                              }}
+                              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                              title="Cálculo de Costo Real de la Intervención"
+                            >
+                              <Calculator className="w-4 h-4 text-emerald-600" />
+                            </button>
                             <button onClick={() => { setEditingEntryId(entry.id); setEditEntryData({ obra_asignada: entry.obra_asignada || '', informe_fallas: entry.informe_fallas || '', fecha_ingreso: entry.fecha_ingreso, fecha_salida: entry.fecha_salida || '', observaciones: entry.observaciones || '' }); }} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all"><Edit2 className="w-4 h-4" /></button>
                             <button onClick={() => setDeleteConfirmId(entry.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
                           </>
@@ -1217,6 +1230,23 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Cálculo de Costo Real de Intervención */}
+      {showCostModal && entryForCostModal && (
+        <OperativeCostModal
+          isOpen={showCostModal}
+          onClose={() => {
+            setShowCostModal(false);
+            setEntryForCostModal(null);
+          }}
+          entry={entryForCostModal}
+          equipment={equipment.find(eq => eq.id === entryForCostModal.equipo_id) || null}
+          onConfirm={async () => {
+            await refreshData();
+          }}
+          allowOperativeDateEdit={true}
+        />
       )}
     </div>
   );

@@ -54,6 +54,22 @@ export const getStateLabel = (estado?: string) => {
   return estado || 'En Reparación';
 };
 
+export const sanitizePdfText = (text: string | null | undefined): string => {
+  if (!text) return '';
+  return String(text)
+    .replace(/[≤]/g, '<=')
+    .replace(/[≥]/g, '>=')
+    .replace(/[★☆]/g, '*')
+    .replace(/[•●▪]/g, '-')
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[…]/g, '...')
+    .replace(/[💡⚠️]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+};
+
 export interface InactivityRecord {
   entry: MaintenanceEntry;
   equipment: Equipment | null;

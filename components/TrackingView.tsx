@@ -1,11 +1,13 @@
 
 import React, { useState, useMemo, useRef } from 'react';
-import { MaintenanceEntry, Equipment, MaintenanceAction } from '../types';
-import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package, FolderDown } from 'lucide-react';
+import { MaintenanceEntry, Equipment, MaintenanceAction, CostoRealIntervencion } from '../types';
+import { Plus, Search, Calendar, Save, Trash2, ArrowRight, FileText, User, Clock, AlertTriangle, X, Edit2, Check, Wrench, MessageSquare, Activity, MapPin, Filter, ClipboardCheck, Download, CheckCircle, Loader2, ShoppingCart, CheckCircle2, Lock, Unlock, Key, PackageCheck, Package, FolderDown, Calculator, Receipt } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../supabase';
 import { exportEquipmentInterventionsPDF } from '../utils/interventionsReport';
+import { EvaluationModal } from './EvaluationModal';
+import { OperativeCostModal } from './OperativeCostModal';
 
 interface TrackingViewProps {
   entries: MaintenanceEntry[];
@@ -33,6 +35,13 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   // State for in-memory edits of entries in CONFIRMACION state
   const [confirmationFormMap, setConfirmationFormMap] = useState<Record<string, { note: string; responsable: string; date: string }>>({});
+  
+  // States for Operative Real Cost Modal
+  const [showCostModal, setShowCostModal] = useState(false);
+  const [entryForCostModal, setEntryForCostModal] = useState<MaintenanceEntry | null>(null);
+
+  // State for Evaluation of Intervention Modal
+  const [selectedEvaluationEntry, setSelectedEvaluationEntry] = useState<MaintenanceEntry | null>(null);
   
   const today = new Date().toLocaleDateString('en-CA'); 
   const MAINTENANCE_GOAL = 90;
@@ -285,16 +294,14 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
   };
 
   const handleOperativeClick = (entry: MaintenanceEntry) => {
-    if (allowOperativeDateEdit) {
-      setOperativeModalEntry(entry);
-      setOperativeExitDate(today);
-      setOperativeAuthKey('');
-      setIsDateUnlocked(false);
-      setOperativeError(null);
-      setShowOperativeModal(true);
-    } else {
-      handleStatusChange(entry, 'OPERATIVO', today);
-    }
+    setEntryForCostModal(entry);
+    setShowCostModal(true);
+  };
+
+  const handleConfirmOperativeWithCost = async (costoReal: CostoRealIntervencion, exitDate: string) => {
+    if (!entryForCostModal) return;
+    const targetEntry = entryForCostModal;
+    await handleStatusChange(targetEntry, 'OPERATIVO', exitDate);
   };
 
   const handleValidateKey = () => {
@@ -1278,13 +1285,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                       <td className="px-4 py-4 border-r border-slate-200 text-center font-black text-slate-700 bg-slate-50/50">{firstActionDuration}d</td>
                       <td className="px-4 py-4 text-center">
                         <div className="flex flex-col items-center justify-center gap-2">
-                          <button 
-                            onClick={() => exportEquipmentInterventionsPDF(entry, equipment)} 
-                            className="p-1.5 text-slate-400 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all"
-                            title="Carpeta de Arrastre"
-                          >
-                            <FolderDown className="w-5 h-5 text-green-700" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => exportEquipmentInterventionsPDF(entry, equipment)} 
+                              className="p-1.5 text-slate-400 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all"
+                              title="Carpeta de Arrastre"
+                            >
+                              <FolderDown className="w-5 h-5 text-green-700" />
+                            </button>
+                            <button 
+                              onClick={() => setSelectedEvaluationEntry(entry)} 
+                              className="p-1.5 text-slate-400 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-all"
+                              title="Evaluación Económico/Financiera de la Intervención"
+                            >
+                              <Calculator className="w-5 h-5 text-indigo-700" />
+                            </button>
+                          </div>
 
                           {isEditingFirst || isEditingEntry ? (
                             <button onClick={async () => { 
@@ -1968,6 +1984,29 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
           </div>
         );
       })()}
+
+      {/* Modal de Evaluación de Intervención */}
+      <EvaluationModal
+        isOpen={!!selectedEvaluationEntry}
+        onClose={() => setSelectedEvaluationEntry(null)}
+        entry={selectedEvaluationEntry}
+        equipment={selectedEvaluationEntry ? (equipment.find(eq => eq.id === selectedEvaluationEntry.equipo_id) || null) : null}
+      />
+
+      {/* Modal de Cálculo de Costo Real de la Intervención al pasar a Operativo */}
+      {showCostModal && entryForCostModal && (
+        <OperativeCostModal
+          isOpen={showCostModal}
+          onClose={() => {
+            setShowCostModal(false);
+            setEntryForCostModal(null);
+          }}
+          entry={entryForCostModal}
+          equipment={equipment.find(eq => eq.id === entryForCostModal.equipo_id) || null}
+          onConfirm={handleConfirmOperativeWithCost}
+          allowOperativeDateEdit={allowOperativeDateEdit}
+        />
+      )}
     </div>
   );
 };
