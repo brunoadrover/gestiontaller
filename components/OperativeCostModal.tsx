@@ -4,7 +4,9 @@ import {
   extractRcandSottFromActions, 
   getStoredCostoReal, 
   saveStoredCostoReal, 
-  calculateTotalCostoReal 
+  calculateTotalCostoReal,
+  getRepairDays,
+  syncItemsWithDatabase
 } from '../utils/realCostHelper';
 import { 
   X, 
@@ -21,6 +23,7 @@ import {
   AlertCircle,
   HelpCircle,
   Check,
+  Save,
   TrendingDown,
   TrendingUp
 } from 'lucide-react';
@@ -32,6 +35,7 @@ interface OperativeCostModalProps {
   equipment: Equipment | null;
   onConfirm: (costoReal: CostoRealIntervencion, exitDate: string) => Promise<void>;
   allowOperativeDateEdit?: boolean;
+  isHistoryMode?: boolean;
 }
 
 export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
@@ -40,20 +44,24 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
   entry,
   equipment,
   onConfirm,
-  allowOperativeDateEdit = false
+  allowOperativeDateEdit = false,
+  isHistoryMode = false
 }) => {
+  const isHistory = Boolean(isHistoryMode || entry?.estado === 'OPERATIVO');
   const today = new Date().toLocaleDateString('en-CA');
   
   const [exitDate, setExitDate] = useState<string>(entry.fecha_salida || today);
   const [items, setItems] = useState<ItemCostoIntervencion[]>([]);
-  const [hourlyRate, setHourlyRate] = useState<string>('25');
+  const [deletedActionIds, setDeletedActionIds] = useState<string[]>([]);
+  // El precio de mano de obra, por defecto, debe ser 11
+  const [hourlyRate, setHourlyRate] = useState<string>('11');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [evalData, setEvalData] = useState<EvaluacionIngresoTaller | null>(null);
   const [authKey, setAuthKey] = useState<string>('');
   const [isDateUnlocked, setIsDateUnlocked] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
 
-  // Helper para días de estadía
+  // Helper para días de estadía total
   const calculateStayDays = (d1: string, d2: string) => {
     if (!d1 || !d2) return 0;
     const start = new Date(d1 + 'T00:00:00');
@@ -67,6 +75,18 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
     return calculateStayDays(entry.fecha_ingreso, exitDate);
   }, [entry.fecha_ingreso, exitDate]);
 
+  // Cálculo automático del total parcial de días en estado de REPARACIÓN
+  const computedRepairDays = useMemo(() => {
+    return getRepairDays(entry, exitDate);
+  }, [entry, exitDate]);
+
+  // Estado editable para días en estado de REPARACIÓN (permite ajuste si fuera necesario)
+  const [repairDays, setRepairDays] = useState<number>(computedRepairDays);
+
+  useEffect(() => {
+    setRepairDays(computedRepairDays);
+  }, [computedRepairDays]);
+
   // Cargar datos previos y/o extraer de acciones
   useEffect(() => {
     if (!isOpen || !entry) return;
@@ -74,15 +94,12 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
     let isMounted = true;
 
     const loadData = async () => {
-      // 1. Intentar cargar evaluación previa para obtener tarifa de mano de obra inicial y estimaciones
+      // 1. Intentar cargar evaluación previa para estimaciones de presupuesto
       try {
         const cachedEval = localStorage.getItem(`eval_intervencion_${entry.id}`);
         if (cachedEval) {
           const parsed = JSON.parse(cachedEval);
           if (isMounted) setEvalData(parsed);
-          if (parsed.mano_obra_hr && Number(parsed.mano_obra_hr) > 0) {
-            if (isMounted) setHourlyRate(String(parsed.mano_obra_hr));
-          }
         }
       } catch (e) {
         // ignore
@@ -90,14 +107,25 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
 
       // 2. Intentar cargar costo real guardado previamente
       const stored = await getStoredCostoReal(entry.id);
-      if (stored && stored.items && stored.items.length > 0) {
+      if (stored) {
         if (isMounted) {
-          setItems(stored.items);
+          if (stored.items && stored.items.length > 0) {
+            setItems(stored.items);
+          }
           if (stored.precio_mano_obra_hr > 0) {
             setHourlyRate(String(stored.precio_mano_obra_hr));
+          } else {
+            setHourlyRate('11');
+          }
+          if (stored.dias_reparacion !== undefined && stored.dias_reparacion !== null) {
+            setRepairDays(stored.dias_reparacion);
           }
         }
         return;
+      } else {
+        if (isMounted) {
+          setHourlyRate('11');
+        }
       }
 
       // 3. Si no existe costo guardado, extraer automáticamente de los avances (acciones_taller)
@@ -114,10 +142,10 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
     };
   }, [isOpen, entry]);
 
-  // Cálculos en tiempo real
+  // Cálculos en tiempo real basados en los días de REPARACIÓN
   const calculations = useMemo(() => {
-    return calculateTotalCostoReal(items, stayDays, Number(hourlyRate) || 0);
-  }, [items, stayDays, hourlyRate]);
+    return calculateTotalCostoReal(items, repairDays, Number(hourlyRate) || 0);
+  }, [items, repairDays, hourlyRate]);
 
   if (!isOpen) return null;
 
@@ -144,6 +172,10 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
   };
 
   const handleDeleteItem = (id: string) => {
+    const itemToDelete = items.find((item) => item.id === id);
+    if (itemToDelete?.accion_id) {
+      setDeletedActionIds((prev) => [...prev, itemToDelete.accion_id!]);
+    }
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
@@ -152,23 +184,34 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    setDateError(null);
+    if (!isHistory) {
+      setDateError(null);
 
-    const isDateModified = exitDate !== today;
-    const isAuthorized = isDateUnlocked || authKey.trim() === '124';
+      const isDateModified = exitDate !== today;
+      const isAuthorized = isDateUnlocked || authKey.trim() === '124';
 
-    if (allowOperativeDateEdit && isDateModified && !isAuthorized) {
-      setDateError('Para modificar la fecha de salida debe ingresar la clave de autorización.');
-      return;
+      if (allowOperativeDateEdit && isDateModified && !isAuthorized) {
+        setDateError('Para modificar la fecha de salida debe ingresar la clave de autorización.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
     try {
+      // 1. Sincronizar comprobantes (RC y SOTT) con la base de datos (acciones_taller)
+      const syncedItems = await syncItemsWithDatabase(
+        entry.id,
+        items,
+        deletedActionIds,
+        exitDate || today
+      );
+
       const costoReal: CostoRealIntervencion = {
         ingreso_id: entry.id,
-        items,
+        items: syncedItems,
         precio_mano_obra_hr: Math.max(0, Number(hourlyRate) || 0),
         estadia_total_dias: stayDays,
+        dias_reparacion: repairDays,
         horas_mano_obra: calculations.horasManoObra,
         costo_mano_obra: calculations.costoManoObra,
         subtotal_rc: calculations.subtotalRc,
@@ -177,10 +220,10 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
         fecha_computo: new Date().toISOString()
       };
 
-      // Guardar en almacenamiento persistente
+      // 2. Guardar en almacenamiento persistente (localStorage y Supabase)
       await saveStoredCostoReal(costoReal);
 
-      // Confirmar y cambiar estado a OPERATIVO
+      // 3. Confirmar hacia el componente padre
       await onConfirm(costoReal, exitDate);
       onClose();
     } catch (e: any) {
@@ -202,8 +245,10 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full">
-                  Pase a Operativo
+                <span className={`text-[10px] font-black uppercase tracking-wider ${
+                  isHistory ? 'bg-slate-700 text-emerald-300' : 'bg-emerald-500 text-slate-950'
+                } px-2 py-0.5 rounded-full`}>
+                  {isHistory ? 'Historial / Operativo' : 'Pase a Operativo'}
                 </span>
                 <span className="text-xs text-slate-300 font-mono font-bold">
                   Interno: {entry.equipo_id}
@@ -248,60 +293,81 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
               <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">
                 Fecha Salida (Operativo)
               </span>
-              <input
-                type="date"
-                value={exitDate}
-                onChange={(e) => {
-                  setExitDate(e.target.value);
-                  setDateError(null);
-                }}
-                disabled={!allowOperativeDateEdit}
-                className={`mt-0.5 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border w-full ${
-                  allowOperativeDateEdit
-                    ? 'bg-white border-emerald-300 text-slate-900 focus:ring-2 focus:ring-emerald-400'
-                    : 'bg-slate-100 border-slate-200 text-slate-600 cursor-not-allowed'
-                }`}
-              />
-              {allowOperativeDateEdit && exitDate !== today && !isDateUnlocked && (
-                <div className="mt-1 flex items-center gap-1">
-                  <input
-                    type="password"
-                    placeholder="Clave (124)"
-                    value={authKey}
-                    onChange={(e) => setAuthKey(e.target.value)}
-                    className="w-20 px-1.5 py-0.5 text-[10px] font-mono border border-amber-300 rounded bg-amber-50 outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (authKey.trim() === '124') {
-                        setIsDateUnlocked(true);
-                        setDateError(null);
-                      } else {
-                        setDateError('Clave incorrecta');
-                      }
-                    }}
-                    className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-bold"
-                  >
-                    OK
-                  </button>
+              {isHistory ? (
+                <div className="mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-slate-800">
+                    {exitDate ? exitDate.split('-').reverse().join('/') : 'N/D'}
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 bg-slate-200/90 px-1.5 py-0.5 rounded">
+                    Consolidada
+                  </span>
                 </div>
-              )}
-              {dateError && (
-                <span className="text-[9px] text-red-600 font-bold block mt-0.5">{dateError}</span>
+              ) : (
+                <>
+                  <input
+                    type="date"
+                    value={exitDate}
+                    onChange={(e) => {
+                      setExitDate(e.target.value);
+                      setDateError(null);
+                    }}
+                    disabled={!allowOperativeDateEdit}
+                    className={`mt-0.5 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border w-full ${
+                      allowOperativeDateEdit
+                        ? 'bg-white border-emerald-300 text-slate-900 focus:ring-2 focus:ring-emerald-400'
+                        : 'bg-slate-100 border-slate-200 text-slate-600 cursor-not-allowed'
+                    }`}
+                  />
+                  {allowOperativeDateEdit && exitDate !== today && !isDateUnlocked && (
+                    <div className="mt-1 flex items-center gap-1">
+                      <input
+                        type="password"
+                        placeholder="Clave (124)"
+                        value={authKey}
+                        onChange={(e) => setAuthKey(e.target.value)}
+                        className="w-20 px-1.5 py-0.5 text-[10px] font-mono border border-amber-300 rounded bg-amber-50 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (authKey.trim() === '124') {
+                            setIsDateUnlocked(true);
+                            setDateError(null);
+                          } else {
+                            setDateError('Clave incorrecta');
+                          }
+                        }}
+                        className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-bold"
+                      >
+                        OK
+                      </button>
+                    </div>
+                  )}
+                  {dateError && (
+                    <span className="text-[9px] text-red-600 font-bold block mt-0.5">{dateError}</span>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="bg-emerald-50/80 rounded-xl p-2.5 border border-emerald-200 flex flex-col justify-center">
-              <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">Estadía Total</span>
+            <div className="bg-slate-100/90 rounded-xl p-2.5 border border-slate-200 flex flex-col justify-center">
+              <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Estadía Total</span>
               <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-xl font-black text-emerald-900">{stayDays}</span>
-                <span className="text-xs font-bold text-emerald-700">días en taller</span>
+                <span className="text-lg font-black text-slate-800">{stayDays}</span>
+                <span className="text-xs font-bold text-slate-500">días en taller</span>
+              </div>
+            </div>
+
+            <div className="bg-emerald-50/90 rounded-xl p-2.5 border border-emerald-300 flex flex-col justify-center">
+              <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">En Reparación</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-xl font-black text-emerald-900">{repairDays}</span>
+                <span className="text-xs font-bold text-emerald-700">días reparación</span>
               </div>
             </div>
           </div>
 
-          {/* Bloque: Precio de Mano de Obra (se ingresa antes) */}
+          {/* Bloque: Precio de Mano de Obra (se ingresa antes) y Horas en REPARACIÓN */}
           <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-slate-50 p-4.5 rounded-2xl border-2 border-indigo-200 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
@@ -310,31 +376,50 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
                 </div>
                 <div>
                   <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">
-                    Cálculo de Mano de Obra de Taller
+                    Cálculo de Mano de Obra en Estado de REPARACIÓN
                   </h3>
                   <p className="text-[11px] text-slate-600">
-                    Fórmula oficial: <strong className="text-indigo-900 font-bold">(Estadía Total) × 2 operarios × 8 hs/día × (Precio Mano de Obra en USD)</strong>
+                    Fórmula oficial: <strong className="text-indigo-900 font-bold">(Días en REPARACIÓN: {repairDays} d) × 2 operarios × 8 hs/día × (Precio Mano de Obra en USD)</strong>
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    * Nota: Se computan únicamente las horas en reparación efectiva (se excluyen demoras por repuestos en compras o pruebas).
                   </p>
                 </div>
               </div>
 
-              {/* Input de Precio de Mano de Obra */}
-              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-300 shadow-sm self-start sm:self-center">
-                <label className="text-[10px] font-black uppercase tracking-wider text-slate-600 whitespace-nowrap">
-                  Precio Mano de Obra:
-                </label>
-                <div className="flex items-center">
-                  <span className="text-xs font-bold text-slate-500 mr-1">USD</span>
+              {/* Inputs de Control: Días en Reparación y Precio Mano de Obra */}
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-indigo-200 shadow-sm">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">
+                    Días Rep.:
+                  </label>
                   <input
                     type="number"
                     min="0"
-                    step="0.5"
-                    value={hourlyRate}
-                    onChange={(e) => setHourlyRate(e.target.value)}
-                    placeholder="25"
-                    className="w-20 text-xs font-black text-slate-900 outline-none text-right border-b border-indigo-400 focus:border-indigo-600"
+                    value={repairDays}
+                    onChange={(e) => setRepairDays(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-12 text-xs font-black text-indigo-700 outline-none text-right border-b border-indigo-300 focus:border-indigo-600"
                   />
-                  <span className="text-[11px] font-bold text-slate-500 ml-1">/hr</span>
+                  <span className="text-[10px] font-bold text-slate-500">d</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-indigo-300 shadow-sm">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-600 whitespace-nowrap">
+                    Precio M.O.:
+                  </label>
+                  <div className="flex items-center">
+                    <span className="text-xs font-bold text-slate-500 mr-1">USD</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={hourlyRate}
+                      onChange={(e) => setHourlyRate(e.target.value)}
+                      placeholder="11"
+                      className="w-14 text-xs font-black text-slate-900 outline-none text-right border-b border-indigo-400 focus:border-indigo-600"
+                    />
+                    <span className="text-[10px] font-bold text-slate-500 ml-1">/hr</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -342,15 +427,15 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
             {/* Subtotales en vivo de Mano de Obra */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-indigo-100 text-xs">
               <div className="bg-white/80 p-2 rounded-lg border border-indigo-100">
-                <span className="text-[9px] uppercase text-slate-400 font-bold block">Estadía Total</span>
-                <span className="font-mono font-bold text-slate-800">{stayDays} días</span>
+                <span className="text-[9px] uppercase text-slate-400 font-bold block">Tiempo en Reparación</span>
+                <span className="font-mono font-bold text-indigo-800">{repairDays} días <span className="text-[9px] text-slate-400 font-normal">({stayDays} d total)</span></span>
               </div>
               <div className="bg-white/80 p-2 rounded-lg border border-indigo-100">
-                <span className="text-[9px] uppercase text-slate-400 font-bold block">Horas Jornada (2x8)</span>
+                <span className="text-[9px] uppercase text-slate-400 font-bold block">Jornada (2 operarios x 8h)</span>
                 <span className="font-mono font-bold text-slate-800">16 hs / día</span>
               </div>
               <div className="bg-white/80 p-2 rounded-lg border border-indigo-100">
-                <span className="text-[9px] uppercase text-slate-400 font-bold block">Total Horas Taller</span>
+                <span className="text-[9px] uppercase text-slate-400 font-bold block">Total Horas en Reparación</span>
                 <span className="font-mono font-black text-indigo-700">{calculations.horasManoObra} hs</span>
               </div>
               <div className="bg-indigo-600 text-white p-2 rounded-lg shadow-sm">
@@ -596,8 +681,12 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
         {/* Footer con Acciones */}
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Al confirmar, el equipo cambiará a estado <strong>OPERATIVO</strong> y el costo figurará en su Carpeta de Arrastre.</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            {isHistory ? (
+              <span>Al guardar, se actualizarán los costos reales y se registrarán los comprobantes (RC / SOTT) en la base de datos.</span>
+            ) : (
+              <span>Al confirmar, el equipo cambiará a estado <strong>OPERATIVO</strong> y el costo figurará en su Carpeta de Arrastre.</span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -622,8 +711,17 @@ export const OperativeCostModal: React.FC<OperativeCostModalProps> = ({
                 </>
               ) : (
                 <>
-                  <Check className="w-4 h-4" />
-                  <span>Confirmar y Pasar a OPERATIVO</span>
+                  {isHistory ? (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Guardar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Confirmar y Pasar a OPERATIVO</span>
+                    </>
+                  )}
                 </>
               )}
             </button>

@@ -1245,7 +1245,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({ entries, refreshData, equipme
           onConfirm={async () => {
             await refreshData();
           }}
-          allowOperativeDateEdit={true}
+          allowOperativeDateEdit={false}
+          isHistoryMode={true}
         />
       )}
     </div>

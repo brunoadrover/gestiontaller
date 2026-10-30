@@ -14,7 +14,8 @@ import {
 import { 
   extractRcandSottFromActions, 
   getStoredCostoReal, 
-  calculateTotalCostoReal 
+  calculateTotalCostoReal,
+  getRepairDays
 } from './realCostHelper';
 
 export interface FlujoFondoReportRow {
@@ -333,7 +334,13 @@ export const exportEquipmentInterventionsPDF = async (
   startY += 18;
 
   // --- SECCIÓN: EVALUACIÓN ECONÓMICO-FINANCIERA DE LA INTERVENCIÓN (AL COMIENZO, SI EXISTE) ---
-  const hasEvaluation = evalData && (evalData.inversion !== null || evalData.costo_repuesto_est !== null);
+  const hasEvaluation = Boolean(
+    evalData && (
+      (evalData.inversion !== null && evalData.inversion !== undefined) ||
+      (evalData.costo_repuesto_est !== null && evalData.costo_repuesto_est !== undefined) ||
+      (evalData.crc_exigido !== null && evalData.crc_exigido !== undefined)
+    )
+  );
 
   if (hasEvaluation && evalData) {
     const inv = Number(evalData.inversion) || 0;
@@ -638,6 +645,37 @@ export const exportEquipmentInterventionsPDF = async (
     }
 
     startY += decBoxH + 4;
+  } else {
+    // Encabezado de la Sección Financiera
+    doc.setFillColor(100, 116, 139); // Slate 500
+    doc.rect(14, startY, 182, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text('EVALUACIÓN ECONÓMICO-FINANCIERA DE LA INTERVENCIÓN', 18, startY + 5);
+
+    // Centrado en el espacio restante de la página correspondiente
+    const pageRemainingHeight = 280 - (startY + 7);
+    const centerY = startY + 7 + (pageRemainingHeight / 2); // aprox y = 186mm
+    const boxH = 44;
+    const boxY = centerY - (boxH / 2);
+
+    doc.setFillColor(248, 250, 252); // Slate 50
+    doc.setDrawColor(226, 232, 240); // Slate 200
+    doc.roundedRect(18, boxY, 174, boxH, 3, 3, 'FD');
+
+    // Detalle decorativo sutil
+    doc.setDrawColor(203, 213, 225); // Slate 300
+    doc.line(85, boxY + 12, 125, boxY + 12);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(13);
+    doc.setTextColor(100, 116, 139); // Slate 500 (tono de gris medio)
+
+    const noEvalText = sanitizePdfText('Para esta intervención no se realizó una evaluación económico/financiera previa');
+    const splitLines = doc.splitTextToSize(noEvalText, 160);
+    const textStartY = boxY + 22 + (splitLines.length === 1 ? 4 : 0);
+    doc.text(splitLines, 105, textStartY, { align: 'center', lineHeightFactor: 1.4 });
   }
 
   // --- SECCIÓN: HISTORIAL DE AVANCES E INTERVENCIONES DE TALLER (HOJA APARTE) ---
@@ -762,13 +800,16 @@ export const exportEquipmentInterventionsPDF = async (
   // Si aún no hay costo guardado, extraer automáticamente de los avances registrados
   if (!costoReal) {
     const extractedItems = extractRcandSottFromActions(entry.acciones_taller || []);
-    const defaultHourlyRate = Number(evalData?.mano_obra_hr) || 25;
-    const calc = calculateTotalCostoReal(extractedItems, totalStayDays, defaultHourlyRate);
+    // El precio de mano de obra, por defecto, debe ser 11
+    const defaultHourlyRate = 11;
+    const repairDays = getRepairDays(entry, entry.fecha_salida);
+    const calc = calculateTotalCostoReal(extractedItems, repairDays, defaultHourlyRate);
     costoReal = {
       ingreso_id: entry.id,
       items: extractedItems,
       precio_mano_obra_hr: defaultHourlyRate,
       estadia_total_dias: totalStayDays,
+      dias_reparacion: repairDays,
       horas_mano_obra: calc.horasManoObra,
       costo_mano_obra: calc.costoManoObra,
       subtotal_rc: calc.subtotalRc,
@@ -933,9 +974,11 @@ export const exportEquipmentInterventionsPDF = async (
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(30, 58, 138);
-  doc.text('2. CÓMPUTO DE MANO DE OBRA DE TALLER:', 14, costY);
+  doc.text('2. CÓMPUTO DE MANO DE OBRA EN ESTADO DE REPARACIÓN:', 14, costY);
 
   costY += 3;
+
+  const repDaysVal = costoReal.dias_reparacion !== undefined ? costoReal.dias_reparacion : Math.round(costoReal.horas_mano_obra / 16);
 
   // Recuadro de Mano de Obra
   doc.setFillColor(238, 242, 255); // Indigo 50
@@ -951,7 +994,7 @@ export const exportEquipmentInterventionsPDF = async (
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.2);
   doc.setTextColor(30, 41, 59);
-  doc.text(`(Estadía Total: ${costoReal.estadia_total_dias} días) x 2 operarios x 8 hs/día = ${costoReal.horas_mano_obra} hs de taller`, 45, costY + 4.8);
+  doc.text(`(Tiempo en REPARACIÓN: ${repDaysVal} días) x 2 operarios x 8 hs/día = ${costoReal.horas_mano_obra} hs de mano de obra`, 45, costY + 4.8);
 
   doc.setFont('helvetica', 'bold');
   doc.text('Tarifa Mano de Obra:', 18, costY + 9.5);

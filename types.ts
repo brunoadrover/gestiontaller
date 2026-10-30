@@ -34,6 +34,7 @@ export interface CostoRealIntervencion {
   items: ItemCostoIntervencion[];
   precio_mano_obra_hr: number;
   estadia_total_dias: number;
+  dias_reparacion?: number;
   horas_mano_obra: number;
   costo_mano_obra: number;
   subtotal_rc: number;
