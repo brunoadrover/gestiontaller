@@ -19,7 +19,7 @@ import {
   getPartsWaitDays,
   getTestingDays
 } from './realCostHelper';
-import { buildInterventionSummaryParagraph } from './interventionSummaryHelper';
+import { polishInterventionSummaryWithAI } from './interventionSummaryHelper';
 
 export interface FlujoFondoReportRow {
   mes: number;
@@ -893,7 +893,7 @@ export const exportEquipmentInterventionsPDF = async (
 
   costY += 3;
 
-  const summaryParagraph = buildInterventionSummaryParagraph({
+  const summaryParagraph = await polishInterventionSummaryWithAI({
     entry,
     workshopName: getWorkshopName(entry.equipo_id, eq),
     sortedActions,
@@ -906,7 +906,15 @@ export const exportEquipmentInterventionsPDF = async (
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  const summaryLines = doc.splitTextToSize(summaryParagraph, 173);
+  const rawParagraphs = summaryParagraph.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const summaryLines: string[] = [];
+  rawParagraphs.forEach((p, idx) => {
+    const wrapped = doc.splitTextToSize(p, 173) as string[];
+    summaryLines.push(...wrapped);
+    if (idx < rawParagraphs.length - 1) {
+      summaryLines.push('');
+    }
+  });
   const lineHeightMm = 3.7;
   const padTop = 4;
   const padBottom = 3.5;

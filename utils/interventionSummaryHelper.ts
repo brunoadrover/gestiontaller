@@ -573,6 +573,10 @@ const formatCollaboratorName = (name: string): string => {
   const clean = sanitizePdfText(name).replace(/\s+/g, ' ').trim();
   if (!clean) return '';
 
+  const normalizedKey = stripAccents(clean.toLowerCase());
+  if (normalizedKey === 'taller') return 'personal de taller';
+  if (normalizedKey === 'compras') return 'personal de compras';
+
   const letters = clean.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/g, '');
   const upperCount = (letters.match(/[A-ZÁÉÍÓÚÑÜ]/g) || []).length;
   const lowerCount = (letters.match(/[a-záéíóúñü]/g) || []).length;
@@ -602,10 +606,10 @@ export const extractUniqueCollaborators = (actions: MaintenanceAction[]): string
     const upper = rawResp.toUpperCase();
     if (upper === 'SISTEMA' || upper === 'SIN ESPECIFICAR' || upper === '-') continue;
 
-    const key = stripAccents(rawResp.toLowerCase()).replace(/\s+/g, ' ').trim();
+    const formatted = formatCollaboratorName(rawResp);
+    const key = stripAccents(formatted.toLowerCase()).replace(/\s+/g, ' ').trim();
     if (!key) continue;
 
-    const formatted = formatCollaboratorName(rawResp);
     const existing = map.get(key);
     if (!existing) {
       map.set(key, formatted);
@@ -693,4 +697,65 @@ export const buildInterventionSummaryParagraph = ({
   const staySentence = ` La estadía en taller estuvo dividida en: ${partsLabel} esperando repuestos, y ${repairLabel} en reparación${testingExtra}.`;
 
   return sanitizePdfText(`${interventionsSentence}${collaboratorsSentence}${staySentence}`);
+};
+
+const stripMarkdownFormatting = (text: string): string => {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,;:!?]|$)/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+export const polishInterventionSummaryWithAI = async (
+  params: InterventionSummaryParams
+): Promise<string> => {
+  const draftSummary = buildInterventionSummaryParagraph(params);
+
+  const response = await fetch('/api/gemini/polish-summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      draftSummary,
+      context: {
+        equipoId: params.entry.equipo_id,
+        taller: params.workshopName,
+        fechaIngreso: params.fechaIngresoFormatted,
+        fechaFin: params.fechaFinFormatted,
+        diasRepuestos: Math.max(0, Math.round(params.partsWaitDays || 0)),
+        diasReparacion: Math.max(0, Math.round(params.repairDays || 0)),
+        diasPrueba: Math.max(0, Math.round(params.testingDays || 0)),
+        fallaInicial: params.entry.informe_fallas || '',
+        observaciones: params.entry.observaciones || '',
+        avances: params.sortedActions.map((a) => ({
+          fecha: a.fecha_accion || '',
+          responsable: a.responsable || '',
+          descripcion: a.descripcion || '',
+        })),
+      },
+    }),
+  });
+
+  let payload: any = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || !payload?.summary || typeof payload.summary !== 'string') {
+    const serverMsg = payload?.error || `Error del servidor (${response.status})`;
+    throw new Error(`No se pudo corregir el resumen con IA: ${serverMsg}`);
+  }
+
+  const cleanedParagraphs = stripMarkdownFormatting(payload.summary)
+    .split(/\n+/)
+    .map((p) => sanitizePdfText(p))
+    .filter(Boolean);
+
+  return cleanedParagraphs.join('\n\n');
 };

@@ -42,6 +42,22 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   // State for Evaluation of Intervention Modal
   const [selectedEvaluationEntry, setSelectedEvaluationEntry] = useState<MaintenanceEntry | null>(null);
+
+  // States for Carpeta de Arrastre PDF export with AI summary
+  const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
+  const [pdfExportError, setPdfExportError] = useState<string | null>(null);
+
+  const handleExportCarpetaPDF = async (entry: MaintenanceEntry) => {
+    setPdfExportError(null);
+    setExportingPdfId(entry.id);
+    try {
+      await exportEquipmentInterventionsPDF(entry, equipment);
+    } catch (err: any) {
+      setPdfExportError(err?.message || 'Error al generar la Carpeta de Arrastre en PDF.');
+    } finally {
+      setExportingPdfId(null);
+    }
+  };
   
   const today = new Date().toLocaleDateString('en-CA'); 
   const MAINTENANCE_GOAL = 90;
@@ -1021,6 +1037,21 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
 
   return (
     <div className="space-y-6">
+      {pdfExportError && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl flex items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-bold">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{pdfExportError}</span>
+          </div>
+          <button
+            onClick={() => setPdfExportError(null)}
+            className="text-red-500 hover:text-red-700 p-1 rounded-lg"
+            title="Cerrar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Seguimiento de Taller</h2>
@@ -1287,11 +1318,16 @@ const TrackingView: React.FC<TrackingViewProps> = ({ entries, refreshData, equip
                         <div className="flex flex-col items-center justify-center gap-2">
                           <div className="flex items-center gap-1">
                             <button 
-                              onClick={() => exportEquipmentInterventionsPDF(entry, equipment)} 
-                              className="p-1.5 text-slate-400 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all"
-                              title="Carpeta de Arrastre"
+                              onClick={() => handleExportCarpetaPDF(entry)} 
+                              disabled={exportingPdfId !== null}
+                              className="p-1.5 text-slate-400 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all disabled:opacity-60"
+                              title={exportingPdfId === entry.id ? 'Generando Carpeta de Arrastre...' : 'Carpeta de Arrastre'}
                             >
-                              <FolderDown className="w-5 h-5 text-green-700" />
+                              {exportingPdfId === entry.id ? (
+                                <Loader2 className="w-5 h-5 text-green-700 animate-spin" />
+                              ) : (
+                                <FolderDown className="w-5 h-5 text-green-700" />
+                              )}
                             </button>
                             <button 
                               onClick={() => setSelectedEvaluationEntry(entry)} 
