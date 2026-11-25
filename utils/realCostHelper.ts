@@ -246,6 +246,27 @@ export const saveStoredCostoReal = async (costo: CostoRealIntervencion): Promise
   }
 };
 
+const getActiveCheckpointDays = (entry: MaintenanceEntry, exitDateStr?: string): number => {
+  const actions = entry.acciones_taller || [];
+  const sortedActions = [...actions].sort((a, b) =>
+    (a.fecha_accion || '').localeCompare(b.fecha_accion || '') || (a.id || '').localeCompare(b.id || '')
+  );
+
+  const lastCheckpointAction = [...sortedActions].reverse().find(a =>
+    a.descripcion?.startsWith('Cambio de estado a:') ||
+    a.descripcion?.includes('Cambio de estado a:') ||
+    a.descripcion === 'Sincronización diaria de estadía'
+  );
+
+  const lastChangeDate = lastCheckpointAction ? lastCheckpointAction.fecha_accion : entry.fecha_ingreso;
+  const effectiveExit = exitDateStr || new Date().toLocaleDateString('en-CA');
+
+  const start = new Date(lastChangeDate + 'T00:00:00');
+  const end = new Date(effectiveExit + 'T00:00:00');
+  const diffTime = end.getTime() - start.getTime();
+  return isNaN(diffTime) ? 0 : Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+};
+
 export const getRepairDays = (entry: MaintenanceEntry, exitDateStr?: string): number => {
   if (!entry) return 0;
   const currentStatus = (entry.estado || 'REPARACION').toUpperCase();
@@ -264,28 +285,11 @@ export const getRepairDays = (entry: MaintenanceEntry, exitDateStr?: string): nu
 
   // Si actualmente está en REPARACION o CONFIRMACION, se suman los días activos desde el último checkpoint
   if (currentStatus === 'REPARACION' || currentStatus === 'CONFIRMACION') {
-    const actions = entry.acciones_taller || [];
-    const sortedActions = [...actions].sort((a, b) => 
-      (a.fecha_accion || '').localeCompare(b.fecha_accion || '') || (a.id || '').localeCompare(b.id || '')
-    );
-
-    const lastCheckpointAction = [...sortedActions].reverse().find(a => 
-      a.descripcion?.startsWith('Cambio de estado a:') || 
-      a.descripcion?.includes('Cambio de estado a:') ||
-      a.descripcion === 'Sincronización diaria de estadía'
-    );
-
-    const lastChangeDate = lastCheckpointAction ? lastCheckpointAction.fecha_accion : entry.fecha_ingreso;
-    const effectiveExit = exitDateStr || new Date().toLocaleDateString('en-CA');
-    
-    const start = new Date(lastChangeDate + 'T00:00:00');
-    const end = new Date(effectiveExit + 'T00:00:00');
-    const diffTime = end.getTime() - start.getTime();
-    const daysDiff = isNaN(diffTime) ? 0 : Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
-
+    const daysDiff = getActiveCheckpointDays(entry, exitDateStr);
     const totalDays = baseRepairDays + daysDiff;
     if (totalDays === 0 && !entry.estadia_compras && !entry.estadia_prueba) {
       const fullStart = new Date(entry.fecha_ingreso + 'T00:00:00');
+      const end = new Date((exitDateStr || new Date().toLocaleDateString('en-CA')) + 'T00:00:00');
       return Math.max(0, Math.floor((end.getTime() - fullStart.getTime()) / (1000 * 60 * 60 * 24)));
     }
     return totalDays;
@@ -293,6 +297,38 @@ export const getRepairDays = (entry: MaintenanceEntry, exitDateStr?: string): nu
 
   // Si está en COMPRAS o PRUEBA, los días parciales en reparación acumulados son baseRepairDays
   return baseRepairDays;
+};
+
+export const getPartsWaitDays = (entry: MaintenanceEntry, exitDateStr?: string): number => {
+  if (!entry) return 0;
+  const currentStatus = (entry.estado || 'REPARACION').toUpperCase();
+  const basePartsDays = Math.max(0, Number(entry.estadia_compras || 0));
+
+  if (currentStatus === 'OPERATIVO') {
+    return basePartsDays;
+  }
+
+  if (currentStatus === 'COMPRAS') {
+    return basePartsDays + getActiveCheckpointDays(entry, exitDateStr);
+  }
+
+  return basePartsDays;
+};
+
+export const getTestingDays = (entry: MaintenanceEntry, exitDateStr?: string): number => {
+  if (!entry) return 0;
+  const currentStatus = (entry.estado || 'REPARACION').toUpperCase();
+  const baseTestingDays = Math.max(0, Number(entry.estadia_prueba || 0));
+
+  if (currentStatus === 'OPERATIVO') {
+    return baseTestingDays;
+  }
+
+  if (currentStatus === 'PRUEBA') {
+    return baseTestingDays + getActiveCheckpointDays(entry, exitDateStr);
+  }
+
+  return baseTestingDays;
 };
 
 export const calculateTotalCostoReal = (

@@ -15,8 +15,11 @@ import {
   extractRcandSottFromActions, 
   getStoredCostoReal, 
   calculateTotalCostoReal,
-  getRepairDays
+  getRepairDays,
+  getPartsWaitDays,
+  getTestingDays
 } from './realCostHelper';
+import { buildInterventionSummaryParagraph } from './interventionSummaryHelper';
 
 export interface FlujoFondoReportRow {
   mes: number;
@@ -823,18 +826,18 @@ export const exportEquipmentInterventionsPDF = async (
   doc.addPage();
   let costY = 20;
 
-  // Header de la sección de Costo Real
+  // Header de la sección de Resumen y Costo Real
   doc.setFillColor(30, 41, 59); // Slate 800
   doc.rect(14, costY, 182, 8, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
+  doc.setFontSize(8.5);
   doc.setTextColor(255, 255, 255);
-  doc.text('CÓMPUTO DE COSTO REAL DE LA REPARACIÓN / INTERVENCIÓN', 18, costY + 5.5);
+  doc.text('RESUMEN Y CÓMPUTO DE COSTO REAL DE LA REPARACIÓN / INTERVENCIÓN', 18, costY + 5.3);
 
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 213, 225);
-  doc.text(`Equipo: ${entry.equipo_id} | Estadía: ${costoReal.estadia_total_dias} días`, 192, costY + 5.5, { align: 'right' });
+  doc.text(`Equipo: ${entry.equipo_id} | Estadía: ${costoReal.estadia_total_dias} días`, 192, costY + 5.3, { align: 'right' });
 
   costY += 12;
 
@@ -878,11 +881,79 @@ export const exportEquipmentInterventionsPDF = async (
 
   costY += 20;
 
-  // Subtítulo Sección 1: RC y SOTT
+  const repDaysVal = costoReal.dias_reparacion !== undefined ? costoReal.dias_reparacion : Math.round(costoReal.horas_mano_obra / 16);
+  const partsWaitDaysVal = getPartsWaitDays(entry, entry.fecha_salida);
+  const testingDaysVal = getTestingDays(entry, entry.fecha_salida);
+
+  // Subtítulo Sección 1: Resumen de la Intervención
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(30, 58, 138); // Blue 900
-  doc.text('1. COMPROBANTES DE REPUESTOS (RC) Y SERVICIOS DE TERCEROS (SOTT):', 14, costY);
+  doc.text('1. RESUMEN DE LA INTERVENCIÓN:', 14, costY);
+
+  costY += 3;
+
+  const summaryParagraph = buildInterventionSummaryParagraph({
+    entry,
+    workshopName: getWorkshopName(entry.equipo_id, eq),
+    sortedActions,
+    fechaIngresoFormatted: formatDateDisplay(entry.fecha_ingreso),
+    fechaFinFormatted: entry.fecha_salida ? formatDateDisplay(entry.fecha_salida) : todayFormatted,
+    partsWaitDays: partsWaitDaysVal,
+    repairDays: repDaysVal,
+    testingDays: testingDaysVal
+  });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  const summaryLines = doc.splitTextToSize(summaryParagraph, 173);
+  const lineHeightMm = 3.7;
+  const padTop = 4;
+  const padBottom = 3.5;
+
+  // Renderizar el recuadro de resumen paginando de forma segura si fuera muy extenso
+  let lineIdx = 0;
+  while (lineIdx < summaryLines.length) {
+    const maxY = 278;
+    const availH = maxY - costY - padTop - padBottom;
+    const maxLinesFit = Math.max(1, Math.floor(availH / lineHeightMm));
+    const chunk = summaryLines.slice(lineIdx, lineIdx + maxLinesFit);
+    const chunkBoxH = padTop + (chunk.length * lineHeightMm) + padBottom;
+
+    doc.setFillColor(248, 250, 252); // Slate 50
+    doc.rect(14, costY, 182, chunkBoxH, 'F');
+    doc.setDrawColor(203, 213, 225); // Slate 300
+    doc.rect(14, costY, 182, chunkBoxH, 'S');
+    // Barra de acento izquierda
+    doc.setFillColor(30, 58, 138); // Blue 900
+    doc.rect(14, costY, 1.5, chunkBoxH, 'F');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(30, 41, 59);
+    chunk.forEach((line: string, i: number) => {
+      doc.text(line, 19, costY + padTop + 1.8 + (i * lineHeightMm));
+    });
+
+    costY += chunkBoxH + 5;
+    lineIdx += chunk.length;
+
+    if (lineIdx < summaryLines.length) {
+      doc.addPage();
+      costY = 20;
+    }
+  }
+
+  if (costY > 250) {
+    doc.addPage();
+    costY = 20;
+  }
+
+  // Subtítulo Sección 2: RC y SOTT
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(30, 58, 138); // Blue 900
+  doc.text('2. COMPROBANTES DE REPUESTOS (RC) Y SERVICIOS DE TERCEROS (SOTT):', 14, costY);
 
   costY += 3;
 
@@ -970,15 +1041,18 @@ export const exportEquipmentInterventionsPDF = async (
 
   costY = (doc as any).lastAutoTable.finalY + 5;
 
-  // Subtítulo Sección 2: Mano de Obra
+  if (costY + 25 > 278) {
+    doc.addPage();
+    costY = 20;
+  }
+
+  // Subtítulo Sección 3: Mano de Obra
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(30, 58, 138);
-  doc.text('2. CÓMPUTO DE MANO DE OBRA EN ESTADO DE REPARACIÓN:', 14, costY);
+  doc.text('3. CÓMPUTO DE MANO DE OBRA EN ESTADO DE REPARACIÓN:', 14, costY);
 
   costY += 3;
-
-  const repDaysVal = costoReal.dias_reparacion !== undefined ? costoReal.dias_reparacion : Math.round(costoReal.horas_mano_obra / 16);
 
   // Recuadro de Mano de Obra
   doc.setFillColor(238, 242, 255); // Indigo 50
@@ -1009,11 +1083,16 @@ export const exportEquipmentInterventionsPDF = async (
 
   costY += 21;
 
-  // Subtítulo Sección 3: Resumen Consolidado y Total General
+  if (costY + 42 > 278) {
+    doc.addPage();
+    costY = 20;
+  }
+
+  // Subtítulo Sección 4: Resumen Consolidado y Total General
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(30, 58, 138);
-  doc.text('3. RESUMEN CONSOLIDADO DEL COSTO TOTAL DE LA INTERVENCIÓN:', 14, costY);
+  doc.text('4. RESUMEN CONSOLIDADO DEL COSTO TOTAL DE LA INTERVENCIÓN:', 14, costY);
 
   costY += 3.5;
 
@@ -1059,6 +1138,11 @@ export const exportEquipmentInterventionsPDF = async (
 
   // Comparativa vs Inversión Inicial Estimada si existe
   if (evalData && (evalData.inversion || evalData.costo_repuesto_est || evalData.costo_sott_est)) {
+    if (costY + 16 > 278) {
+      doc.addPage();
+      costY = 20;
+    }
+
     const invEstimada = evalData.inversion || ((Number(evalData.costo_repuesto_est) || 0) + (Number(evalData.costo_sott_est) || 0));
     const desvio = costoReal.costo_total_real - invEstimada;
     const isUnderBudget = desvio <= 0;
